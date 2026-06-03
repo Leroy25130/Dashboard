@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import rawAbsorption from '../data/absorption_data.json';
 import SectionHeader from './SectionHeader';
 
 const MONTHS = ['Jan 2026','Feb 2026','Mar 2026','Apr 2026','May 2026','Jun 2026',
@@ -14,14 +13,14 @@ const SERIES = [
   { key: 'Actual',          label: 'Actual',          color: '#10b981' },
 ];
 
-export default function Absorption() {
+export default function Absorption({ data }) {
   const [selectedCode, setSelectedCode] = useState('All');
   const [selectedMonth, setSelectedMonth] = useState('All');
   const [visibleSeries, setVisibleSeries] = useState(new Set(['AOP', 'Latest Estimate', 'Actual']));
 
   const toggleSeries = (key) => {
     setVisibleSeries(prev => {
-      if (prev.size === 1 && prev.has(key)) return prev; // keep at least one
+      if (prev.size === 1 && prev.has(key)) return prev;
       const next = new Set(prev);
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
@@ -29,15 +28,14 @@ export default function Absorption() {
   };
 
   const codes = useMemo(() => {
-    const all = [...new Set(rawAbsorption.aop.map(r => r.code))].sort();
+    const all = [...new Set((data?.aop ?? []).map(r => r.code))].sort();
     return ['All', ...all];
-  }, []);
+  }, [data]);
 
-  // Build lookup maps: code → row
-  const toMap = (rows) => Object.fromEntries(rows.map(r => [r.code, r]));
-  const aopMap = useMemo(() => toMap(rawAbsorption.aop), []);
-  const ltMap  = useMemo(() => toMap(rawAbsorption.lt),  []);
-  const actMap = useMemo(() => toMap(rawAbsorption.act), []);
+  const toMap = (rows) => Object.fromEntries((rows ?? []).map(r => [r.code, r]));
+  const aopMap = useMemo(() => toMap(data?.aop), [data]);
+  const ltMap  = useMemo(() => toMap(data?.lt),  [data]);
+  const actMap = useMemo(() => toMap(data?.act),  [data]);
 
   const filteredCodes = selectedCode === 'All' ? codes.slice(1) : [selectedCode];
   const filteredMonths = selectedMonth === 'All' ? MONTHS : [selectedMonth];

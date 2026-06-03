@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import rawData from './data/wo_data.json';
+import { DataProvider, useData } from './context/DataContext';
 import KPICard from './components/KPICard';
 import VolumeReleased from './components/VolumeReleased';
 import VolumeManufactured from './components/VolumeManufactured';
@@ -8,6 +8,7 @@ import Timeliness from './components/Timeliness';
 import Yield from './components/Yield';
 import Routing from './components/Routing';
 import Absorption from './components/Absorption';
+import UploadPanel from './components/UploadPanel';
 
 const SECTIONS = [
   { id: 'released',     label: '📦 Volume Released' },
@@ -19,8 +20,11 @@ const SECTIONS = [
   { id: 'absorption',   label: '🎯 Actual vs AOP' },
 ];
 
-export default function App() {
-  const data = useMemo(() => rawData.filter(d => (d['Quantity Completed'] || 0) > 0), []);
+function Dashboard() {
+  const { woData, absorptionData, updateWO, updateAbsorption, lastUpdated } = useData();
+  const [showUpload, setShowUpload] = useState(false);
+
+  const data = useMemo(() => woData.filter(d => (d['Quantity Completed'] || 0) > 0), [woData]);
 
   const totalQtyCompleted = useMemo(() => data.reduce((s, d) => s + (d['Quantity Completed'] || 0), 0), [data]);
   const avgYield = useMemo(() => {
@@ -33,6 +37,11 @@ export default function App() {
       new Date(d['Actual Complete Date']) > new Date(d['Complete Date'])).length,
     [data]);
 
+  const handleUpdate = (type, newData, filename) => {
+    if (type === 'wo')         updateWO(newData, filename);
+    if (type === 'absorption') updateAbsorption(newData, filename);
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: '#0f172a', color: '#e2e8f0', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
       {/* Top bar */}
@@ -41,7 +50,10 @@ export default function App() {
           Caldera Medical · Production Dashboard
         </div>
         <div style={{ flex: 1 }} />
-        <div style={{ color: '#64748b', fontSize: 13 }}>Manufacturing</div>
+        <button onClick={() => setShowUpload(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+          <span>⬆️</span> Update Data
+        </button>
       </div>
 
       <div style={{ display: 'flex', minHeight: 'calc(100vh - 56px)' }}>
@@ -66,7 +78,10 @@ export default function App() {
           <div style={{ marginBottom: 24 }}>
             <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, color: '#f1f5f9' }}>Manufacturing KPIs</h1>
             <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
-              {data.length} work orders · report date: June 2026
+              {data.length} work orders
+              {lastUpdated?.wo
+                ? ` · updated ${new Date(lastUpdated.wo.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                : ' · default data'}
             </div>
           </div>
 
@@ -84,11 +99,23 @@ export default function App() {
           <div id="timeliness"><Timeliness data={data} /></div>
           <div id="yield"><Yield data={data} /></div>
           <div id="routing"><Routing data={data} /></div>
-          <div id="absorption"><Absorption /></div>
+          <div id="absorption"><Absorption data={absorptionData} /></div>
 
           <div style={{ height: 60 }} />
         </div>
       </div>
+
+      {showUpload && (
+        <UploadPanel
+          onUpdate={handleUpdate}
+          lastUpdated={lastUpdated}
+          onClose={() => setShowUpload(false)}
+        />
+      )}
     </div>
   );
+}
+
+export default function App() {
+  return <DataProvider><Dashboard /></DataProvider>;
 }
