@@ -1,35 +1,46 @@
 import { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer, Cell } from 'recharts';
+import { monthLabel, sortedMonths } from '../utils/dataHelpers';
 import SectionHeader from './SectionHeader';
 
 export default function Yield({ data }) {
   const [search, setSearch] = useState('');
   const [threshold, setThreshold] = useState(95);
+  const [selectedMonth, setSelectedMonth] = useState('All');
 
   const rows = useMemo(() => data.map(d => ({
     ...d,
+    month: monthLabel(d['Actual Complete Date']),
     yieldPct: d['Work Order Quantity'] > 0
       ? +((d['Quantity Completed'] / d['Work Order Quantity']) * 100).toFixed(1)
       : null,
   })), [data]);
 
-  const chartData = useMemo(() =>
-    rows.filter(r => r.yieldPct !== null)
-      .map(r => ({ wo: String(r['Work Order Number']), item: r['Item Number'], desc: r['Item Description'], yield: r.yieldPct }))
-      .sort((a, b) => a.yield - b.yield),
-    [rows]);
-
-  const avgYield = useMemo(() => {
-    const vals = rows.filter(r => r.yieldPct !== null).map(r => r.yieldPct);
-    return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : 'N/A';
+  const months = useMemo(() => {
+    const all = rows.map(r => r.month).filter(m => m !== 'Unknown');
+    return ['All', ...sortedMonths(all)];
   }, [rows]);
-
-  const below = rows.filter(r => r.yieldPct !== null && r.yieldPct < threshold).length;
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return rows.filter(d => !q || d['Item Number']?.toLowerCase().includes(q) || String(d['Work Order Number']).toLowerCase().includes(q));
-  }, [rows, search]);
+    return rows.filter(d =>
+      (selectedMonth === 'All' || d.month === selectedMonth) &&
+      (!q || d['Item Number']?.toLowerCase().includes(q) || String(d['Work Order Number']).toLowerCase().includes(q))
+    );
+  }, [rows, search, selectedMonth]);
+
+  const chartData = useMemo(() =>
+    filtered.filter(r => r.yieldPct !== null)
+      .map(r => ({ wo: String(r['Work Order Number']), item: r['Item Number'], desc: r['Item Description'], yield: r.yieldPct }))
+      .sort((a, b) => a.yield - b.yield),
+    [filtered]);
+
+  const avgYield = useMemo(() => {
+    const vals = filtered.filter(r => r.yieldPct !== null).map(r => r.yieldPct);
+    return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : 'N/A';
+  }, [filtered]);
+
+  const below = filtered.filter(r => r.yieldPct !== null && r.yieldPct < threshold).length;
 
   return (
     <div>
@@ -43,6 +54,24 @@ export default function Yield({ data }) {
           <input type="number" value={threshold} min={0} max={100} onChange={e => setThreshold(Number(e.target.value))}
             style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '4px 8px', fontSize: 13, width: 80 }} />
         </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div>
+          <label style={{ color: '#94a3b8', fontSize: 13, marginRight: 8 }}>Month (Actual Complete):</label>
+          <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+            style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 10px', fontSize: 13 }}>
+            {months.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <input placeholder="Search by Item Number or WO Number…" value={search} onChange={e => setSearch(e.target.value)}
+          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 12px', fontSize: 13, width: 280 }} />
+        {(selectedMonth !== 'All' || search) && (
+          <button onClick={() => { setSelectedMonth('All'); setSearch(''); }}
+            style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>
+            Clear filters
+          </button>
+        )}
       </div>
 
       <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
@@ -73,16 +102,11 @@ export default function Yield({ data }) {
         </ResponsiveContainer>
       </div>
 
-      <div style={{ marginBottom: 12 }}>
-        <input placeholder="Search by Item Number or WO Number…" value={search} onChange={e => setSearch(e.target.value)}
-          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '6px 12px', fontSize: 13, width: 300 }} />
-      </div>
-
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: '#1e293b' }}>
-              {['Item Number','Item Description','Work Order #','WO Qty','Qty Completed','Yield %'].map(h => (
+              {['Item Number','Item Description','Work Order #','Actual Complete Month','WO Qty','Qty Completed','Yield %'].map(h => (
                 <th key={h} style={th}>{h}</th>
               ))}
             </tr>
@@ -93,6 +117,7 @@ export default function Yield({ data }) {
                 <td style={td}>{d['Item Number']}</td>
                 <td style={td}>{d['Item Description']}</td>
                 <td style={td}>{d['Work Order Number']}</td>
+                <td style={td}>{d.month}</td>
                 <td style={td}>{d['Work Order Quantity']?.toLocaleString()}</td>
                 <td style={td}>{d['Quantity Completed']?.toLocaleString()}</td>
                 <td style={{ ...td, color: d.yieldPct < threshold ? '#ef4444' : '#10b981', fontWeight: 600 }}>
