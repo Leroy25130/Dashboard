@@ -6,11 +6,13 @@ import SectionHeader from './SectionHeader';
 export default function Timeliness({ data }) {
   const [search, setSearch] = useState('');
   const [selectedSeq, setSelectedSeq] = useState('All');
+  const [selectedOpName, setSelectedOpName] = useState('All');
 
   const rows = useMemo(() => data.map(d => {
     const delta = daysBetween(d['Complete Date'], d['Actual Complete Date']);
-    const seq = d['Current Operation Sequence'] != null ? String(d['Current Operation Sequence']) : 'None';
-    return { ...d, delta, seq };
+    const seq    = d['Current Operation Sequence'] != null ? String(d['Current Operation Sequence']) : 'None';
+    const opName = d['Current Operation Name']     != null && d['Current Operation Name'] !== '' ? String(d['Current Operation Name']) : 'None';
+    return { ...d, delta, seq, opName };
   }), [data]);
 
   const sequences = useMemo(() => {
@@ -22,13 +24,23 @@ export default function Timeliness({ data }) {
     return ['All', ...vals];
   }, [rows]);
 
+  const opNames = useMemo(() => {
+    const vals = [...new Set(rows.map(r => r.opName))].sort((a, b) => {
+      if (a === 'None') return 1;
+      if (b === 'None') return -1;
+      return a.localeCompare(b);
+    });
+    return ['All', ...vals];
+  }, [rows]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return rows.filter(d =>
-      (selectedSeq === 'All' || d.seq === selectedSeq) &&
+      (selectedSeq    === 'All' || d.seq    === selectedSeq) &&
+      (selectedOpName === 'All' || d.opName === selectedOpName) &&
       (!q || d['Item Number']?.toLowerCase().includes(q) || String(d['Work Order Number']).toLowerCase().includes(q))
     );
-  }, [rows, search, selectedSeq]);
+  }, [rows, search, selectedSeq, selectedOpName]);
 
   const scatterData = useMemo(() => filtered.filter(r => r.delta !== null).map(r => ({
     wo: r['Work Order Number'],
@@ -81,16 +93,21 @@ export default function Timeliness({ data }) {
 
       <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <div>
-          <label style={{ color: '#94a3b8', fontSize: 13, marginRight: 8 }}>Current Op Sequence:</label>
-          <select value={selectedSeq} onChange={e => setSelectedSeq(e.target.value)}
-            style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 10px', fontSize: 13 }}>
+          <label style={labelStyle}>Current Op Sequence:</label>
+          <select value={selectedSeq} onChange={e => setSelectedSeq(e.target.value)} style={selectStyle}>
             {sequences.map(s => <option key={s} value={s}>{s === 'All' ? 'All' : s === 'None' ? 'None (blank)' : s}</option>)}
           </select>
         </div>
+        <div>
+          <label style={labelStyle}>Current Op Name:</label>
+          <select value={selectedOpName} onChange={e => setSelectedOpName(e.target.value)} style={selectStyle}>
+            {opNames.map(n => <option key={n} value={n}>{n === 'All' ? 'All' : n === 'None' ? 'None (blank)' : n}</option>)}
+          </select>
+        </div>
         <input placeholder="Search by Item Number or WO Number…" value={search} onChange={e => setSearch(e.target.value)}
-          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 12px', fontSize: 13, width: 280 }} />
-        {(selectedSeq !== 'All' || search) && (
-          <button onClick={() => { setSelectedSeq('All'); setSearch(''); }}
+          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 12px', fontSize: 13, width: 240 }} />
+        {(selectedSeq !== 'All' || selectedOpName !== 'All' || search) && (
+          <button onClick={() => { setSelectedSeq('All'); setSelectedOpName('All'); setSearch(''); }}
             style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>
             Clear filters
           </button>
@@ -101,7 +118,7 @@ export default function Timeliness({ data }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: '#1e293b' }}>
-              {['Item Number','Item Description','Work Order #','Op Sequence','Planned Complete','Actual Complete','Delay (days)'].map(h => (
+              {['Item Number','Item Description','Work Order #','Op Sequence','Op Name','Planned Complete','Actual Complete','Delay (days)'].map(h => (
                 <th key={h} style={th}>{h}</th>
               ))}
             </tr>
@@ -115,6 +132,7 @@ export default function Timeliness({ data }) {
                   <td style={td}>{d['Item Description']}</td>
                   <td style={td}>{d['Work Order Number']}</td>
                   <td style={td}>{d.seq === 'None' ? '—' : d.seq}</td>
+                  <td style={td}>{d.opName === 'None' ? '—' : d.opName}</td>
                   <td style={td}>{d['Complete Date'] ? new Date(d['Complete Date']).toLocaleDateString() : '—'}</td>
                   <td style={td}>{d['Actual Complete Date'] ? new Date(d['Actual Complete Date']).toLocaleDateString() : '—'}</td>
                   <td style={{ ...td, color: d.delta === null ? '#64748b' : late ? '#ef4444' : '#10b981', fontWeight: 600 }}>
@@ -139,5 +157,7 @@ function Pill({ label, value, color }) {
   );
 }
 
+const labelStyle = { color: '#94a3b8', fontSize: 13, marginRight: 8 };
+const selectStyle = { background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 10px', fontSize: 13 };
 const th = { padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontWeight: 600, borderBottom: '1px solid #334155' };
 const td = { padding: '7px 12px', color: '#e2e8f0', borderBottom: '1px solid #1e293b' };
