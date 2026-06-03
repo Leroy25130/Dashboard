@@ -8,9 +8,25 @@ import SectionHeader from './SectionHeader';
 const MONTHS = ['Jan 2026','Feb 2026','Mar 2026','Apr 2026','May 2026','Jun 2026',
                  'Jul 2026','Aug 2026','Sep 2026','Oct 2026','Nov 2026','Dec 2026'];
 
+const SERIES = [
+  { key: 'AOP',             label: 'AOP',             color: '#3b82f6' },
+  { key: 'Latest Estimate', label: 'Latest Estimate', color: '#8b5cf6' },
+  { key: 'Actual',          label: 'Actual',          color: '#10b981' },
+];
+
 export default function Absorption() {
   const [selectedCode, setSelectedCode] = useState('All');
   const [selectedMonth, setSelectedMonth] = useState('All');
+  const [visibleSeries, setVisibleSeries] = useState(new Set(['AOP', 'Latest Estimate', 'Actual']));
+
+  const toggleSeries = (key) => {
+    setVisibleSeries(prev => {
+      if (prev.size === 1 && prev.has(key)) return prev; // keep at least one
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
 
   const codes = useMemo(() => {
     const all = [...new Set(rawAbsorption.aop.map(r => r.code))].sort();
@@ -101,6 +117,26 @@ export default function Absorption() {
 
       {/* Chart */}
       <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        {/* Series toggles */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          {SERIES.map(s => {
+            const active = visibleSeries.has(s.key);
+            return (
+              <button key={s.key} onClick={() => toggleSeries(s.key)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: active ? `${s.color}22` : '#0f172a',
+                  color: active ? s.color : '#475569',
+                  border: `1.5px solid ${active ? s.color : '#334155'}`,
+                  borderRadius: 6, padding: '5px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                  transition: 'all 0.15s',
+                }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: active ? s.color : '#334155', display: 'inline-block' }} />
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
         <ResponsiveContainer width="100%" height={320}>
           <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -112,9 +148,9 @@ export default function Absorption() {
               formatter={(v, name) => [v.toLocaleString(), name]}
             />
             <Legend wrapperStyle={{ color: '#94a3b8', fontSize: 12 }} />
-            <Bar dataKey="AOP"             name="AOP"              fill="#3b82f6" radius={[3,3,0,0]} />
-            <Bar dataKey="Latest Estimate" name="Latest Estimate"  fill="#8b5cf6" radius={[3,3,0,0]} />
-            <Bar dataKey="Actual"          name="Actual"           fill="#10b981" radius={[3,3,0,0]} />
+            {SERIES.filter(s => visibleSeries.has(s.key)).map(s => (
+              <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color} radius={[3,3,0,0]} />
+            ))}
           </BarChart>
         </ResponsiveContainer>
       </div>
