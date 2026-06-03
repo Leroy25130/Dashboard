@@ -7,6 +7,7 @@ import WorkOrderStatus from './components/WorkOrderStatus';
 import Timeliness from './components/Timeliness';
 import Yield from './components/Yield';
 import Routing from './components/Routing';
+import Absorption from './components/Absorption';
 
 const SECTIONS = [
   { id: 'released',     label: '📦 Volume Released' },
@@ -15,6 +16,7 @@ const SECTIONS = [
   { id: 'timeliness',   label: '⏱️ Timeliness' },
   { id: 'yield',        label: '📊 Yield' },
   { id: 'routing',      label: '⚙️ Routing' },
+  { id: 'absorption',   label: '🎯 Actual vs AOP' },
 ];
 
 export default function App() {
@@ -82,6 +84,7 @@ export default function App() {
           <div id="timeliness"><Timeliness data={data} /></div>
           <div id="yield"><Yield data={data} /></div>
           <div id="routing"><Routing data={data} /></div>
+          <div id="absorption"><Absorption /></div>
 
           <div style={{ height: 60 }} />
         </div>
