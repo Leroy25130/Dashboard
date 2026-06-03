@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer, Cell } from 'recharts';
 import { monthLabel, sortedMonths } from '../utils/dataHelpers';
 import SectionHeader from './SectionHeader';
+import MultiSelect from './MultiSelect';
 
 export default function Yield({ data }) {
   const [search, setSearch] = useState('');
   const [threshold, setThreshold] = useState(95);
-  const [selectedMonth, setSelectedMonth] = useState('All');
+  const [selectedMonths, setSelectedMonths] = useState(new Set());
 
   const rows = useMemo(() => data.map(d => ({
     ...d,
@@ -18,16 +19,16 @@ export default function Yield({ data }) {
 
   const months = useMemo(() => {
     const all = rows.map(r => r.month).filter(m => m !== 'Unknown');
-    return ['All', ...sortedMonths(all)];
+    return sortedMonths(all);
   }, [rows]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return rows.filter(d =>
-      (selectedMonth === 'All' || d.month === selectedMonth) &&
+      (selectedMonths.size === 0 || selectedMonths.has(d.month)) &&
       (!q || d['Item Number']?.toLowerCase().includes(q) || String(d['Work Order Number']).toLowerCase().includes(q))
     );
-  }, [rows, search, selectedMonth]);
+  }, [rows, search, selectedMonths]);
 
   const chartData = useMemo(() =>
     filtered.filter(r => r.yieldPct !== null)
@@ -41,6 +42,8 @@ export default function Yield({ data }) {
   }, [filtered]);
 
   const below = filtered.filter(r => r.yieldPct !== null && r.yieldPct < threshold).length;
+
+  const hasFilters = selectedMonths.size > 0 || search;
 
   return (
     <div>
@@ -57,17 +60,18 @@ export default function Yield({ data }) {
       </div>
 
       <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div>
-          <label style={{ color: '#94a3b8', fontSize: 13, marginRight: 8 }}>Month (Actual Complete):</label>
-          <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
-            style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 10px', fontSize: 13 }}>
-            {months.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </div>
+        <MultiSelect
+          options={months}
+          selected={selectedMonths}
+          onChange={setSelectedMonths}
+          label="Month (Actual Complete):"
+          allLabel="All months"
+          minWidth={180}
+        />
         <input placeholder="Search by Item Number or WO Number…" value={search} onChange={e => setSearch(e.target.value)}
           style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 12px', fontSize: 13, width: 280 }} />
-        {(selectedMonth !== 'All' || search) && (
-          <button onClick={() => { setSelectedMonth('All'); setSearch(''); }}
+        {hasFilters && (
+          <button onClick={() => { setSelectedMonths(new Set()); setSearch(''); }}
             style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>
             Clear filters
           </button>
