@@ -1,19 +1,27 @@
 import { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { monthLabel, sortedMonths } from '../utils/dataHelpers';
 import SectionHeader from './SectionHeader';
 
 export default function Routing({ data }) {
   const [search, setSearch] = useState('');
   const [selectedItem, setSelectedItem] = useState('All');
+  const [selectedMonth, setSelectedMonth] = useState('All');
 
   const items = useMemo(() => ['All', ...new Set(data.map(d => d['Item Number']))].sort(), [data]);
+  const months = useMemo(() => {
+    const all = data.map(d => monthLabel(d['Actual Complete Date'])).filter(m => m !== 'Unknown');
+    return ['All', ...sortedMonths(all)];
+  }, [data]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    let d = selectedItem === 'All' ? data : data.filter(r => r['Item Number'] === selectedItem);
+    let d = data;
+    if (selectedItem !== 'All') d = d.filter(r => r['Item Number'] === selectedItem);
+    if (selectedMonth !== 'All') d = d.filter(r => monthLabel(r['Actual Complete Date']) === selectedMonth);
     if (q) d = d.filter(r => r['Item Number']?.toLowerCase().includes(q) || String(r['Work Order Number']).toLowerCase().includes(q));
     return d;
-  }, [data, search, selectedItem]);
+  }, [data, search, selectedItem, selectedMonth]);
 
   const chartData = useMemo(() =>
     filtered
@@ -48,16 +56,27 @@ export default function Routing({ data }) {
         <Pill label="Total Actual (min)" value={Number(totalActual).toLocaleString()} color="#f59e0b" />
       </div>
 
-      <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <div>
-          <label style={{ color: '#94a3b8', fontSize: 13, marginRight: 8 }}>Filter by Item:</label>
-          <select value={selectedItem} onChange={e => setSelectedItem(e.target.value)}
-            style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '4px 10px', fontSize: 13 }}>
+          <label style={labelStyle}>Month (Actual Complete):</label>
+          <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} style={selectStyle}>
+            {months.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Item Number:</label>
+          <select value={selectedItem} onChange={e => setSelectedItem(e.target.value)} style={selectStyle}>
             {items.map(i => <option key={i} value={i}>{i}</option>)}
           </select>
         </div>
-        <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}
-          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '6px 12px', fontSize: 13, width: 240 }} />
+        <input placeholder="Search by item or WO…" value={search} onChange={e => setSearch(e.target.value)}
+          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '6px 12px', fontSize: 13, width: 220 }} />
+        {(selectedMonth !== 'All' || selectedItem !== 'All' || search) && (
+          <button onClick={() => { setSelectedMonth('All'); setSelectedItem('All'); setSearch(''); }}
+            style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
+            Clear filters
+          </button>
+        )}
       </div>
 
       <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
@@ -130,3 +149,5 @@ function Pill({ label, value, color }) {
 
 const th = { padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontWeight: 600, borderBottom: '1px solid #334155' };
 const td = { padding: '7px 12px', color: '#e2e8f0', borderBottom: '1px solid #1e293b' };
+const labelStyle = { color: '#94a3b8', fontSize: 13, marginRight: 8 };
+const selectStyle = { background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '4px 10px', fontSize: 13 };
