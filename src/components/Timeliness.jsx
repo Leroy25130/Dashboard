@@ -5,29 +5,43 @@ import SectionHeader from './SectionHeader';
 
 export default function Timeliness({ data }) {
   const [search, setSearch] = useState('');
+  const [selectedSeq, setSelectedSeq] = useState('All');
 
   const rows = useMemo(() => data.map(d => {
     const delta = daysBetween(d['Complete Date'], d['Actual Complete Date']);
-    return { ...d, delta };
+    const seq = d['Current Operation Sequence'] != null ? String(d['Current Operation Sequence']) : 'None';
+    return { ...d, delta, seq };
   }), [data]);
 
-  const scatterData = useMemo(() => rows.filter(r => r.delta !== null).map(r => ({
-    wo: r['Work Order Number'],
-    item: r['Item Number'],
-    delta: r.delta,
-  })), [rows]);
-
-  const onTime = rows.filter(r => r.delta !== null && r.delta <= 0).length;
-  const late = rows.filter(r => r.delta !== null && r.delta > 0).length;
-  const avgDelay = useMemo(() => {
-    const vals = rows.filter(r => r.delta !== null).map(r => r.delta);
-    return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : 'N/A';
+  const sequences = useMemo(() => {
+    const vals = [...new Set(rows.map(r => r.seq))].sort((a, b) => {
+      if (a === 'None') return 1;
+      if (b === 'None') return -1;
+      return Number(a) - Number(b);
+    });
+    return ['All', ...vals];
   }, [rows]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return rows.filter(d => !q || d['Item Number']?.toLowerCase().includes(q) || String(d['Work Order Number']).toLowerCase().includes(q));
-  }, [rows, search]);
+    return rows.filter(d =>
+      (selectedSeq === 'All' || d.seq === selectedSeq) &&
+      (!q || d['Item Number']?.toLowerCase().includes(q) || String(d['Work Order Number']).toLowerCase().includes(q))
+    );
+  }, [rows, search, selectedSeq]);
+
+  const scatterData = useMemo(() => filtered.filter(r => r.delta !== null).map(r => ({
+    wo: r['Work Order Number'],
+    item: r['Item Number'],
+    delta: r.delta,
+  })), [filtered]);
+
+  const onTime = filtered.filter(r => r.delta !== null && r.delta <= 0).length;
+  const late = filtered.filter(r => r.delta !== null && r.delta > 0).length;
+  const avgDelay = useMemo(() => {
+    const vals = filtered.filter(r => r.delta !== null).map(r => r.delta);
+    return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : 'N/A';
+  }, [filtered]);
 
   return (
     <div>
@@ -65,16 +79,29 @@ export default function Timeliness({ data }) {
         </ResponsiveContainer>
       </div>
 
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div>
+          <label style={{ color: '#94a3b8', fontSize: 13, marginRight: 8 }}>Current Op Sequence:</label>
+          <select value={selectedSeq} onChange={e => setSelectedSeq(e.target.value)}
+            style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 10px', fontSize: 13 }}>
+            {sequences.map(s => <option key={s} value={s}>{s === 'All' ? 'All' : s === 'None' ? 'None (blank)' : s}</option>)}
+          </select>
+        </div>
         <input placeholder="Search by Item Number or WO Number…" value={search} onChange={e => setSearch(e.target.value)}
-          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '6px 12px', fontSize: 13, width: 300 }} />
+          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 12px', fontSize: 13, width: 280 }} />
+        {(selectedSeq !== 'All' || search) && (
+          <button onClick={() => { setSelectedSeq('All'); setSearch(''); }}
+            style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>
+            Clear filters
+          </button>
+        )}
       </div>
 
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: '#1e293b' }}>
-              {['Item Number','Item Description','Work Order #','Planned Complete','Actual Complete','Delay (days)'].map(h => (
+              {['Item Number','Item Description','Work Order #','Op Sequence','Planned Complete','Actual Complete','Delay (days)'].map(h => (
                 <th key={h} style={th}>{h}</th>
               ))}
             </tr>
@@ -87,6 +114,7 @@ export default function Timeliness({ data }) {
                   <td style={td}>{d['Item Number']}</td>
                   <td style={td}>{d['Item Description']}</td>
                   <td style={td}>{d['Work Order Number']}</td>
+                  <td style={td}>{d.seq === 'None' ? '—' : d.seq}</td>
                   <td style={td}>{d['Complete Date'] ? new Date(d['Complete Date']).toLocaleDateString() : '—'}</td>
                   <td style={td}>{d['Actual Complete Date'] ? new Date(d['Actual Complete Date']).toLocaleDateString() : '—'}</td>
                   <td style={{ ...td, color: d.delta === null ? '#64748b' : late ? '#ef4444' : '#10b981', fontWeight: 600 }}>
