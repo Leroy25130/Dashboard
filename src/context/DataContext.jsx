@@ -6,9 +6,17 @@ import defaultCycleCount from '../data/cycle_count_data.json';
 
 const DataContext = createContext(null);
 
-const LS_WO  = 'caldera_wo_data';
-const LS_ABS = 'caldera_absorption_data';
-const LS_CC  = 'caldera_cycle_count_data';
+const LS_WO      = 'caldera_wo_data';
+const LS_ABS     = 'caldera_absorption_data';
+const LS_CC      = 'caldera_cycle_count_data';
+const LS_VERSION = 'caldera_data_version';
+const CACHE_VERSION = '2';  // bump this whenever default data changes
+
+// Clear stale localStorage if version doesn't match
+if (localStorage.getItem(LS_VERSION) !== CACHE_VERSION) {
+  [LS_WO, LS_ABS, LS_CC, 'caldera_last_updated'].forEach(k => localStorage.removeItem(k));
+  localStorage.setItem(LS_VERSION, CACHE_VERSION);
+}
 
 function loadLS(key, fallback) {
   try {
