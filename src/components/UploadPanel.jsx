@@ -6,6 +6,7 @@ const FILE_TYPES = {
   absorption: { label: 'AOP / ACT Volume File',    color: '#10b981', icon: '🎯' },
   cyclecount:   { label: 'Cycle Count Report',        color: '#f59e0b', icon: '🔄' },
   distribution: { label: 'Distribution Report',      color: '#3b82f6', icon: '🚚' },
+  po:           { label: 'Purchase Order Report',    color: '#f59e0b', icon: '🛒' },
 };
 
 export default function UploadPanel({ onUpdate, lastUpdated, onClose }) {

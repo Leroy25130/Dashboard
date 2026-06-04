@@ -10,6 +10,7 @@ import Routing from './components/Routing';
 import Absorption from './components/Absorption';
 import CycleCount from './components/CycleCount';
 import Distribution from './components/Distribution';
+import Purchasing from './components/Purchasing';
 import UploadPanel from './components/UploadPanel';
 import Overview from './pages/Overview';
 
@@ -28,10 +29,11 @@ const NAV_TABS = [
   { id: 'manufacturing',  label: '🔍 Mfg Detail View' },
   { id: 'cyclecount',     label: '🔄 Detail view Cycle Count' },
   { id: 'distribution',  label: '🚚 Detail view Distribution' },
+  { id: 'purchasing',    label: '🛒 Detail view Purchasing' },
 ];
 
 function Dashboard() {
-  const { woData, absorptionData, cycleCountData, distributionData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, lastUpdated } = useData();
+  const { woData, absorptionData, cycleCountData, distributionData, poData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, lastUpdated } = useData();
   const [showUpload, setShowUpload] = useState(false);
   const [activePage, setActivePage] = useState('summary');
 
@@ -53,6 +55,7 @@ function Dashboard() {
     if (type === 'absorption') updateAbsorption(newData, filename);
     if (type === 'cyclecount')   updateCycleCount(newData, filename);
     if (type === 'distribution') updateDistribution(newData, filename);
+    if (type === 'po')           updatePO(newData, filename);
   };
 
   return (
@@ -199,6 +202,34 @@ function Dashboard() {
           {/* Main content */}
           <div style={{ flex: 1, padding: '28px 36px', overflowY: 'auto' }}>
             <Distribution data={distributionData} />
+          </div>
+        </div>
+      )}
+
+      {/* ── Purchasing Detail View ── */}
+      {activePage === 'purchasing' && (
+        <div style={{ display: 'flex', minHeight: 'calc(100vh - 56px)' }}>
+          <div style={{ width: 196, background: '#1e293b', borderRight: '1px solid #334155', padding: '20px 0', flexShrink: 0, position: 'sticky', top: 56, height: 'calc(100vh - 56px)', overflowY: 'auto' }}>
+            <div style={{ padding: '0 16px 10px', color: '#64748b', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Purchasing
+            </div>
+            {[
+              { id: 'po-status',    label: '📋 PO Status' },
+              { id: 'po-late',      label: '⏰ Late Deliveries' },
+              { id: 'po-financial', label: '💰 Financial Exposure' },
+              { id: 'po-supplier',  label: '🏭 Supplier Breakdown' },
+            ].map(s => (
+              <button key={s.id}
+                onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', color: '#94a3b8', border: 'none', borderLeft: '3px solid transparent', padding: '8px 16px', cursor: 'pointer', fontSize: 13 }}
+                onMouseEnter={e => { e.currentTarget.style.color = '#e2e8f0'; e.currentTarget.style.borderLeftColor = '#3b82f6'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.borderLeftColor = 'transparent'; }}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ flex: 1, padding: '28px 36px', overflowY: 'auto' }}>
+            <Purchasing data={poData} />
           </div>
         </div>
       )}
