@@ -141,8 +141,32 @@ function Dashboard() {
 
       {/* ── Cycle Count Detail View ── */}
       {activePage === 'cyclecount' && (
-        <div style={{ padding: '28px 36px', overflowY: 'auto' }}>
-          <CycleCount data={cycleCountData} />
+        <div style={{ display: 'flex', minHeight: 'calc(100vh - 56px)' }}>
+          {/* Sidebar */}
+          <div style={{ width: 196, background: '#1e293b', borderRight: '1px solid #334155', padding: '20px 0', flexShrink: 0, position: 'sticky', top: 56, height: 'calc(100vh - 56px)', overflowY: 'auto' }}>
+            <div style={{ padding: '0 16px 10px', color: '#64748b', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Cycle Count
+            </div>
+            {[
+              { id: 'cc-accuracy',    label: '🎯 Inventory Accuracy' },
+              { id: 'cc-adjustment',  label: '💰 Adjustment Value' },
+              { id: 'cc-performance', label: '📦 Performance by Item' },
+              { id: 'cc-history',     label: '📅 Count History' },
+              { id: 'cc-recounts',    label: '🔁 Recounts' },
+            ].map(s => (
+              <button key={s.id}
+                onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', color: '#94a3b8', border: 'none', borderLeft: '3px solid transparent', padding: '8px 16px', cursor: 'pointer', fontSize: 13 }}
+                onMouseEnter={e => { e.currentTarget.style.color = '#e2e8f0'; e.currentTarget.style.borderLeftColor = '#3b82f6'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.borderLeftColor = 'transparent'; }}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+          {/* Main content */}
+          <div style={{ flex: 1, padding: '28px 36px', overflowY: 'auto' }}>
+            <CycleCount data={cycleCountData} />
+          </div>
         </div>
       )}
 

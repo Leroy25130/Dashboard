@@ -152,7 +152,7 @@ export default function CycleCount({ data }) {
       </div>
 
       {/* ── Section 1: Inventory Accuracy ─────────────────────────────────── */}
-      <SectionHeader title="Inventory Accuracy" />
+      <div id="cc-accuracy"><SectionHeader title="Inventory Accuracy" /></div>
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
@@ -184,7 +184,7 @@ export default function CycleCount({ data }) {
       </div>
 
       {/* ── Section 2: Adjustment Value ───────────────────────────────────── */}
-      <SectionHeader title="Adjustment Value" />
+      <div id="cc-adjustment"><SectionHeader title="Adjustment Value" /></div>
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
         <Pill label="Items with Adjustments" value={adjRows.length}             />
@@ -230,7 +230,7 @@ export default function CycleCount({ data }) {
       )}
 
       {/* ── Section 3: Performance by Item ────────────────────────────────── */}
-      <SectionHeader title="Performance by Item" />
+      <div id="cc-performance"><SectionHeader title="Performance by Item" /></div>
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
         <MultiSelect options={allItems} selected={s3Items} onChange={setS3Items} label="Item:" minWidth={160} allLabel="All Items" />
@@ -287,7 +287,7 @@ export default function CycleCount({ data }) {
       </div>
 
       {/* ── Section 4: Count History ───────────────────────────────────────── */}
-      <SectionHeader title="Count History" />
+      <div id="cc-history"><SectionHeader title="Count History" /></div>
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
         <MultiSelect options={allSubinventories} selected={s4Subinv} onChange={setS4Subinv} label="Subinventory:" minWidth={180} allLabel="All Subinventories" />
@@ -310,7 +310,7 @@ export default function CycleCount({ data }) {
       </div>
 
       {/* ── Section 5: Recounts ───────────────────────────────────────────── */}
-      <SectionHeader title="Recounts" />
+      <div id="cc-recounts"><SectionHeader title="Recounts" /></div>
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
         <Pill label="Total Recounts"          value={totalRecounts}    color="#10b981" />
