@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import SectionHeader from './SectionHeader';
+import MultiSelect from './MultiSelect';
 
 const STATUS_COLOR = { Closed: '#10b981', Released: '#3b82f6', Completed: '#06b6d4', Canceled: '#ef4444', 'On Hold': '#f59e0b' };
 
 export default function WorkOrderStatus({ data }) {
   const [search, setSearch] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('All');
-  const [selectedSeq, setSelectedSeq] = useState('All');
+  const [selectedSeqs, setSelectedSeqs] = useState(new Set());
   const [selectedOpName, setSelectedOpName] = useState('All');
 
   const statuses = useMemo(() => [...new Set(data.map(d => d['Work Order Status'] || 'Unknown'))].sort(), [data]);
@@ -19,7 +20,7 @@ export default function WorkOrderStatus({ data }) {
       if (b === 'None') return -1;
       return Number(a) - Number(b);
     });
-    return ['All', ...vals];
+    return vals;
   }, [data]);
 
   const opNames = useMemo(() => {
@@ -40,11 +41,11 @@ export default function WorkOrderStatus({ data }) {
       const seq    = d['Current Operation Sequence'] != null ? String(d['Current Operation Sequence']) : 'None';
       const opName = d['Current Operation Name'] != null && d['Current Operation Name'] !== '' ? String(d['Current Operation Name']) : 'None';
       return (selectedStatus === 'All' || (d['Work Order Status'] || 'Unknown') === selectedStatus) &&
-             (selectedSeq    === 'All' || seq    === selectedSeq) &&
+             (selectedSeqs.size === 0 || selectedSeqs.has(seq)) &&
              (selectedOpName === 'All' || opName === selectedOpName) &&
              (!q || d['Item Number']?.toLowerCase().includes(q) || String(d['Work Order Number']).toLowerCase().includes(q));
     });
-  }, [data, search, selectedStatus, selectedSeq, selectedOpName]);
+  }, [data, search, selectedStatus, selectedSeqs, selectedOpName]);
 
   // Status counts reflect all active filters except the status pill itself
   const statusCounts = useMemo(() => {
@@ -53,16 +54,16 @@ export default function WorkOrderStatus({ data }) {
     data.forEach(d => {
       const seq    = d['Current Operation Sequence'] != null ? String(d['Current Operation Sequence']) : 'None';
       const opName = d['Current Operation Name'] != null && d['Current Operation Name'] !== '' ? String(d['Current Operation Name']) : 'None';
-      if (selectedSeq    !== 'All' && seq    !== selectedSeq)    return;
+      if (selectedSeqs.size > 0 && !selectedSeqs.has(seq)) return;
       if (selectedOpName !== 'All' && opName !== selectedOpName) return;
       if (q && !d['Item Number']?.toLowerCase().includes(q) && !String(d['Work Order Number']).toLowerCase().includes(q)) return;
       const s = d['Work Order Status'] || 'Unknown';
       counts[s] = (counts[s] || 0) + 1;
     });
     return counts;
-  }, [data, selectedSeq, selectedOpName, search]);
+  }, [data, selectedSeqs, selectedOpName, search]);
 
-  const clearAll = selectedStatus !== 'All' || selectedSeq !== 'All' || selectedOpName !== 'All' || search;
+  const clearAll = selectedStatus !== 'All' || selectedSeqs.size > 0 || selectedOpName !== 'All' || search;
 
   return (
     <div>
@@ -91,14 +92,14 @@ export default function WorkOrderStatus({ data }) {
 
       {/* Filters row */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div>
-          <label style={labelStyle}>Current Op Sequence:</label>
-          <select value={selectedSeq} onChange={e => setSelectedSeq(e.target.value)} style={selectStyle}>
-            {sequences.map(s => (
-              <option key={s} value={s}>{s === 'All' ? 'All' : s === 'None' ? 'None (blank)' : s}</option>
-            ))}
-          </select>
-        </div>
+        <MultiSelect
+          options={sequences}
+          selected={selectedSeqs}
+          onChange={setSelectedSeqs}
+          label="Current Op Sequence:"
+          allLabel="All sequences"
+          minWidth={180}
+        />
         <div>
           <label style={labelStyle}>Current Op Name:</label>
           <select value={selectedOpName} onChange={e => setSelectedOpName(e.target.value)} style={selectStyle}>
@@ -110,7 +111,7 @@ export default function WorkOrderStatus({ data }) {
         <input placeholder="Search by Item Number or WO Number…" value={search} onChange={e => setSearch(e.target.value)}
           style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 12px', fontSize: 13, width: 240 }} />
         {clearAll && (
-          <button onClick={() => { setSelectedStatus('All'); setSelectedSeq('All'); setSelectedOpName('All'); setSearch(''); }}
+          <button onClick={() => { setSelectedStatus('All'); setSelectedSeqs(new Set()); setSelectedOpName('All'); setSearch(''); }}
             style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>
             Clear filters
           </button>
