@@ -4,7 +4,8 @@ import { parseExcelFile } from '../context/DataContext';
 const FILE_TYPES = {
   wo:         { label: 'Work Order Detail Report', color: '#3b82f6', icon: '📋' },
   absorption: { label: 'AOP / ACT Volume File',    color: '#10b981', icon: '🎯' },
-  cyclecount: { label: 'Cycle Count Report',        color: '#f59e0b', icon: '🔄' },
+  cyclecount:   { label: 'Cycle Count Report',        color: '#f59e0b', icon: '🔄' },
+  distribution: { label: 'Distribution Report',      color: '#3b82f6', icon: '🚚' },
 };
 
 export default function UploadPanel({ onUpdate, lastUpdated, onClose }) {

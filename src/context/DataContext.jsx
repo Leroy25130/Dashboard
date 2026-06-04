@@ -3,18 +3,20 @@ import * as XLSX from 'xlsx';
 import defaultWO from '../data/wo_data.json';
 import defaultAbsorption from '../data/absorption_data.json';
 import defaultCycleCount from '../data/cycle_count_data.json';
+import defaultDistribution from '../data/distribution_data.json';
 
 const DataContext = createContext(null);
 
 const LS_WO      = 'caldera_wo_data';
 const LS_ABS     = 'caldera_absorption_data';
 const LS_CC      = 'caldera_cycle_count_data';
+const LS_DIST    = 'caldera_distribution_data';
 const LS_VERSION = 'caldera_data_version';
 const CACHE_VERSION = '2';  // bump this whenever default data changes
 
 // Clear stale localStorage if version doesn't match
 if (localStorage.getItem(LS_VERSION) !== CACHE_VERSION) {
-  [LS_WO, LS_ABS, LS_CC, 'caldera_last_updated'].forEach(k => localStorage.removeItem(k));
+  [LS_WO, LS_ABS, LS_CC, LS_DIST, 'caldera_last_updated'].forEach(k => localStorage.removeItem(k));
   localStorage.setItem(LS_VERSION, CACHE_VERSION);
 }
 
@@ -142,6 +144,31 @@ function parseCycleCountFile(workbook) {
   return rows;
 }
 
+// ── Distribution file parser ──────────────────────────────────────────────────
+function parseDistributionFile(workbook) {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+  let headerIdx = raw.findIndex(r =>
+    r.some(v => String(v ?? '').includes('Scheduled Shipment Date') ||
+                String(v ?? '').includes('Customer Name') ||
+                String(v ?? '').includes('Shipment Number'))
+  );
+  if (headerIdx === -1) throw new Error('Could not find header row in Distribution file');
+
+  const headers = raw[headerIdx];
+  const rows = raw.slice(headerIdx + 1)
+    .filter(r => r.some(v => v !== null))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, i) => {
+        obj[h] = r[i] ?? null;
+      });
+      return obj;
+    });
+  return rows;
+}
+
 // ── Detect file type and parse ────────────────────────────────────────────────
 export function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
@@ -159,8 +186,20 @@ export function parseExcelFile(file) {
           resolve({ type: 'absorption', data: parseAbsorptionFile(wb) });
         } else if (firstCell.includes('cycle count') || sheetNames.includes('cycle count')) {
           resolve({ type: 'cyclecount', data: parseCycleCountFile(wb) });
+        } else if (sheetNames.includes('shipment') || firstCell.includes('transfer and sales') || firstCell.includes('scheduled shipment') || firstCell.includes('inventory organization')) {
+          resolve({ type: 'distribution', data: parseDistributionFile(wb) });
         } else {
-          reject(new Error('File not recognised. Expected a Work Order Detail Report, AOP/ACT volume file, or Cycle Count Report.'));
+          // Try to detect distribution by header content
+          const firstSheet2 = wb.Sheets[wb.SheetNames[0]];
+          const rows2 = XLSX.utils.sheet_to_json(firstSheet2, { header: 1, defval: null });
+          const hasDistHeaders = rows2.slice(0, 10).some(r =>
+            r.some(v => String(v ?? '').includes('Scheduled Shipment Date') || String(v ?? '').includes('Shipment Number'))
+          );
+          if (hasDistHeaders) {
+            resolve({ type: 'distribution', data: parseDistributionFile(wb) });
+          } else {
+            reject(new Error('File not recognised. Expected a Work Order Detail Report, AOP/ACT volume file, Cycle Count Report, or Distribution Report.'));
+          }
         }
       } catch (err) {
         reject(err);
@@ -173,9 +212,10 @@ export function parseExcelFile(file) {
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 export function DataProvider({ children }) {
-  const [woData,         setWOData]         = useState(() => loadLS(LS_WO,  defaultWO));
-  const [absorptionData, setAbsorptionData] = useState(() => loadLS(LS_ABS, defaultAbsorption));
-  const [cycleCountData, setCycleCountData] = useState(() => loadLS(LS_CC,  defaultCycleCount));
+  const [woData,           setWOData]           = useState(() => loadLS(LS_WO,   defaultWO));
+  const [absorptionData,   setAbsorptionData]   = useState(() => loadLS(LS_ABS,  defaultAbsorption));
+  const [cycleCountData,   setCycleCountData]   = useState(() => loadLS(LS_CC,   defaultCycleCount));
+  const [distributionData, setDistributionData] = useState(() => loadLS(LS_DIST, defaultDistribution));
   const [lastUpdated,    setLastUpdated]    = useState(() => {
     try { return JSON.parse(localStorage.getItem('caldera_last_updated') || '{}'); } catch { return {}; }
   });
@@ -204,8 +244,16 @@ export function DataProvider({ children }) {
     localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
   };
 
+  const updateDistribution = (data, filename) => {
+    setDistributionData(data);
+    localStorage.setItem(LS_DIST, JSON.stringify(data));
+    const ts = { ...lastUpdated, distribution: { filename, at: new Date().toISOString() } };
+    setLastUpdated(ts);
+    localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
+  };
+
   return (
-    <DataContext.Provider value={{ woData, absorptionData, cycleCountData, updateWO, updateAbsorption, updateCycleCount, lastUpdated }}>
+    <DataContext.Provider value={{ woData, absorptionData, cycleCountData, distributionData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, lastUpdated }}>
       {children}
     </DataContext.Provider>
   );
