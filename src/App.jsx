@@ -25,10 +25,11 @@ const SECTIONS = [
 const NAV_TABS = [
   { id: 'summary',        label: '🗂 Manufacturing Summary' },
   { id: 'manufacturing',  label: '🔍 Mfg Detail View' },
+  { id: 'cyclecount',     label: '🔄 Detail view Cycle Count' },
 ];
 
 function Dashboard() {
-  const { woData, absorptionData, updateWO, updateAbsorption, lastUpdated } = useData();
+  const { woData, absorptionData, cycleCountData, updateWO, updateAbsorption, updateCycleCount, lastUpdated } = useData();
   const [showUpload, setShowUpload] = useState(false);
   const [activePage, setActivePage] = useState('summary');
 
@@ -48,6 +49,7 @@ function Dashboard() {
   const handleUpdate = (type, newData, filename) => {
     if (type === 'wo')         updateWO(newData, filename);
     if (type === 'absorption') updateAbsorption(newData, filename);
+    if (type === 'cyclecount') updateCycleCount(newData, filename);
   };
 
   return (
@@ -134,6 +136,13 @@ function Dashboard() {
 
             <div style={{ height: 60 }} />
           </div>
+        </div>
+      )}
+
+      {/* ── Cycle Count Detail View ── */}
+      {activePage === 'cyclecount' && (
+        <div style={{ padding: '28px 36px', overflowY: 'auto' }}>
+          <CycleCount data={cycleCountData} />
         </div>
       )}
 
