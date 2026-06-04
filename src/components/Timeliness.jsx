@@ -6,7 +6,7 @@ import MultiSelect from './MultiSelect';
 
 export default function Timeliness({ data }) {
   const [search, setSearch] = useState('');
-  const [selectedSeq, setSelectedSeq] = useState('All');
+  const [selectedSeqs, setSelectedSeqs] = useState(new Set());
   const [selectedOpName, setSelectedOpName] = useState('All');
   const [selectedMonths, setSelectedMonths] = useState(new Set());
 
@@ -24,12 +24,11 @@ export default function Timeliness({ data }) {
   }, [rows]);
 
   const sequences = useMemo(() => {
-    const vals = [...new Set(rows.map(r => r.seq))].sort((a, b) => {
+    return [...new Set(rows.map(r => r.seq))].sort((a, b) => {
       if (a === 'None') return 1;
       if (b === 'None') return -1;
       return Number(a) - Number(b);
     });
-    return ['All', ...vals];
   }, [rows]);
 
   const opNames = useMemo(() => {
@@ -45,11 +44,11 @@ export default function Timeliness({ data }) {
     const q = search.toLowerCase();
     return rows.filter(d =>
       (selectedMonths.size === 0 || selectedMonths.has(d.month)) &&
-      (selectedSeq    === 'All' || d.seq    === selectedSeq) &&
+      (selectedSeqs.size  === 0 || selectedSeqs.has(d.seq)) &&
       (selectedOpName === 'All' || d.opName === selectedOpName) &&
       (!q || d['Item Number']?.toLowerCase().includes(q) || String(d['Work Order Number']).toLowerCase().includes(q))
     );
-  }, [rows, search, selectedSeq, selectedOpName, selectedMonths]);
+  }, [rows, search, selectedSeqs, selectedOpName, selectedMonths]);
 
   const scatterData = useMemo(() => filtered.filter(r => r.delta !== null).map(r => ({
     wo: r['Work Order Number'],
@@ -64,7 +63,7 @@ export default function Timeliness({ data }) {
     return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : 'N/A';
   }, [filtered]);
 
-  const hasFilters = selectedMonths.size > 0 || selectedSeq !== 'All' || selectedOpName !== 'All' || search;
+  const hasFilters = selectedMonths.size > 0 || selectedSeqs.size > 0 || selectedOpName !== 'All' || search;
 
   return (
     <div>
@@ -110,12 +109,14 @@ export default function Timeliness({ data }) {
           allLabel="All months"
           minWidth={180}
         />
-        <div>
-          <label style={labelStyle}>Current Op Sequence:</label>
-          <select value={selectedSeq} onChange={e => setSelectedSeq(e.target.value)} style={selectStyle}>
-            {sequences.map(s => <option key={s} value={s}>{s === 'All' ? 'All' : s === 'None' ? 'None (blank)' : s}</option>)}
-          </select>
-        </div>
+        <MultiSelect
+          options={sequences}
+          selected={selectedSeqs}
+          onChange={setSelectedSeqs}
+          label="Current Op Sequence:"
+          allLabel="All sequences"
+          minWidth={180}
+        />
         <div>
           <label style={labelStyle}>Current Op Name:</label>
           <select value={selectedOpName} onChange={e => setSelectedOpName(e.target.value)} style={selectStyle}>
@@ -125,7 +126,7 @@ export default function Timeliness({ data }) {
         <input placeholder="Search by Item Number or WO Number…" value={search} onChange={e => setSearch(e.target.value)}
           style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 12px', fontSize: 13, width: 240 }} />
         {hasFilters && (
-          <button onClick={() => { setSelectedMonths(new Set()); setSelectedSeq('All'); setSelectedOpName('All'); setSearch(''); }}
+          <button onClick={() => { setSelectedMonths(new Set()); setSelectedSeqs(new Set()); setSelectedOpName('All'); setSearch(''); }}
             style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>
             Clear filters
           </button>
