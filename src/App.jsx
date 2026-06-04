@@ -31,7 +31,7 @@ function Dashboard() {
   const [showUpload, setShowUpload] = useState(false);
   const [activePage, setActivePage] = useState('summary');
 
-  const data = useMemo(() => woData.filter(d => (d['Quantity Completed'] || 0) > 0), [woData]);
+  const data = useMemo(() => woData, [woData]);
 
   const totalQtyCompleted = useMemo(() => data.reduce((s, d) => s + (d['Quantity Completed'] || 0), 0), [data]);
   const avgYield = useMemo(() => {

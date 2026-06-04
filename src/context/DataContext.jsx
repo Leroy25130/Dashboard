@@ -40,8 +40,6 @@ function parseWOFile(workbook) {
       });
       return obj;
     })
-    .filter(r => (r['Quantity Completed'] || 0) > 0);
-
   return rows;
 }
 
