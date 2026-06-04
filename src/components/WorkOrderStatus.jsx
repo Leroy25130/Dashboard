@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import SectionHeader from './SectionHeader';
 
-const STATUS_COLOR = { Closed: '#10b981', Released: '#3b82f6', Unreleased: '#f59e0b', Cancelled: '#ef4444' };
+const STATUS_COLOR = { Closed: '#10b981', Released: '#3b82f6', Completed: '#06b6d4', Canceled: '#ef4444', 'On Hold': '#f59e0b' };
 
 export default function WorkOrderStatus({ data }) {
   const [search, setSearch] = useState('');

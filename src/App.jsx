@@ -23,7 +23,7 @@ const SECTIONS = [
 
 const NAV_TABS = [
   { id: 'summary',        label: '🗂 Manufacturing Summary' },
-  { id: 'manufacturing',  label: '🔍 Detail View' },
+  { id: 'manufacturing',  label: '🔍 Mfg Detail View' },
 ];
 
 function Dashboard() {
