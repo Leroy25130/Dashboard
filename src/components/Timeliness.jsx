@@ -1,19 +1,27 @@
 import { useMemo, useState } from 'react';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
-import { parseDate, daysBetween } from '../utils/dataHelpers';
+import { parseDate, daysBetween, monthLabel, sortedMonths } from '../utils/dataHelpers';
 import SectionHeader from './SectionHeader';
+import MultiSelect from './MultiSelect';
 
 export default function Timeliness({ data }) {
   const [search, setSearch] = useState('');
   const [selectedSeq, setSelectedSeq] = useState('All');
   const [selectedOpName, setSelectedOpName] = useState('All');
+  const [selectedMonths, setSelectedMonths] = useState(new Set());
 
   const rows = useMemo(() => data.map(d => {
-    const delta = daysBetween(d['Complete Date'], d['Actual Complete Date']);
+    const delta  = daysBetween(d['Complete Date'], d['Actual Complete Date']);
     const seq    = d['Current Operation Sequence'] != null ? String(d['Current Operation Sequence']) : 'None';
     const opName = d['Current Operation Name']     != null && d['Current Operation Name'] !== '' ? String(d['Current Operation Name']) : 'None';
-    return { ...d, delta, seq, opName };
+    const month  = monthLabel(d['Actual Complete Date']);
+    return { ...d, delta, seq, opName, month };
   }), [data]);
+
+  const months = useMemo(() => {
+    const all = rows.map(r => r.month).filter(m => m !== 'Unknown');
+    return sortedMonths(all);
+  }, [rows]);
 
   const sequences = useMemo(() => {
     const vals = [...new Set(rows.map(r => r.seq))].sort((a, b) => {
@@ -36,11 +44,12 @@ export default function Timeliness({ data }) {
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return rows.filter(d =>
+      (selectedMonths.size === 0 || selectedMonths.has(d.month)) &&
       (selectedSeq    === 'All' || d.seq    === selectedSeq) &&
       (selectedOpName === 'All' || d.opName === selectedOpName) &&
       (!q || d['Item Number']?.toLowerCase().includes(q) || String(d['Work Order Number']).toLowerCase().includes(q))
     );
-  }, [rows, search, selectedSeq, selectedOpName]);
+  }, [rows, search, selectedSeq, selectedOpName, selectedMonths]);
 
   const scatterData = useMemo(() => filtered.filter(r => r.delta !== null).map(r => ({
     wo: r['Work Order Number'],
@@ -54,6 +63,8 @@ export default function Timeliness({ data }) {
     const vals = filtered.filter(r => r.delta !== null).map(r => r.delta);
     return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : 'N/A';
   }, [filtered]);
+
+  const hasFilters = selectedMonths.size > 0 || selectedSeq !== 'All' || selectedOpName !== 'All' || search;
 
   return (
     <div>
@@ -75,7 +86,6 @@ export default function Timeliness({ data }) {
             <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="5 5" />
             <Tooltip cursor={{ strokeDasharray: '3 3' }}
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }}
-              formatter={(v, n) => [v, n]}
               content={({ payload }) => payload?.length ? (
                 <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
                   <div style={{ color: '#e2e8f0' }}>WO: {payload[0]?.payload?.wo}</div>
@@ -92,6 +102,14 @@ export default function Timeliness({ data }) {
       </div>
 
       <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <MultiSelect
+          options={months}
+          selected={selectedMonths}
+          onChange={setSelectedMonths}
+          label="Month (Actual Complete):"
+          allLabel="All months"
+          minWidth={180}
+        />
         <div>
           <label style={labelStyle}>Current Op Sequence:</label>
           <select value={selectedSeq} onChange={e => setSelectedSeq(e.target.value)} style={selectStyle}>
@@ -106,12 +124,16 @@ export default function Timeliness({ data }) {
         </div>
         <input placeholder="Search by Item Number or WO Number…" value={search} onChange={e => setSearch(e.target.value)}
           style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 12px', fontSize: 13, width: 240 }} />
-        {(selectedSeq !== 'All' || selectedOpName !== 'All' || search) && (
-          <button onClick={() => { setSelectedSeq('All'); setSelectedOpName('All'); setSearch(''); }}
+        {hasFilters && (
+          <button onClick={() => { setSelectedMonths(new Set()); setSelectedSeq('All'); setSelectedOpName('All'); setSearch(''); }}
             style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>
             Clear filters
           </button>
         )}
+      </div>
+
+      <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>
+        {filtered.length} work order{filtered.length !== 1 ? 's' : ''} shown
       </div>
 
       <div style={{ overflowX: 'auto' }}>
@@ -125,7 +147,7 @@ export default function Timeliness({ data }) {
           </thead>
           <tbody>
             {filtered.map((d, i) => {
-              const late = d.delta > 0;
+              const isLate = d.delta > 0;
               return (
                 <tr key={i} style={{ background: i % 2 === 0 ? '#0f172a' : '#1e293b' }}>
                   <td style={td}>{d['Item Number']}</td>
@@ -135,7 +157,7 @@ export default function Timeliness({ data }) {
                   <td style={td}>{d.opName === 'None' ? '—' : d.opName}</td>
                   <td style={td}>{d['Complete Date'] ? new Date(d['Complete Date']).toLocaleDateString() : '—'}</td>
                   <td style={td}>{d['Actual Complete Date'] ? new Date(d['Actual Complete Date']).toLocaleDateString() : '—'}</td>
-                  <td style={{ ...td, color: d.delta === null ? '#64748b' : late ? '#ef4444' : '#10b981', fontWeight: 600 }}>
+                  <td style={{ ...td, color: d.delta === null ? '#64748b' : isLate ? '#ef4444' : '#10b981', fontWeight: 600 }}>
                     {d.delta === null ? '—' : (d.delta > 0 ? `+${d.delta}` : d.delta)}
                   </td>
                 </tr>
