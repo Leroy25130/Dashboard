@@ -3,6 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import SectionHeader from './SectionHeader';
+import MultiSelect from './MultiSelect';
 
 const MONTHS = ['Jan 2026','Feb 2026','Mar 2026','Apr 2026','May 2026','Jun 2026',
                  'Jul 2026','Aug 2026','Sep 2026','Oct 2026','Nov 2026','Dec 2026'];
@@ -14,7 +15,7 @@ const SERIES = [
 ];
 
 export default function Absorption({ data }) {
-  const [selectedCode, setSelectedCode] = useState('All');
+  const [selectedCodes, setSelectedCodes] = useState(new Set());
   const [selectedMonth, setSelectedMonth] = useState('All');
   const [visibleSeries, setVisibleSeries] = useState(new Set(['AOP', 'Latest Estimate', 'Actual']));
 
@@ -28,8 +29,7 @@ export default function Absorption({ data }) {
   };
 
   const codes = useMemo(() => {
-    const all = [...new Set((data?.aop ?? []).map(r => r.code))].sort();
-    return ['All', ...all];
+    return [...new Set((data?.aop ?? []).map(r => r.code))].sort();
   }, [data]);
 
   const toMap = (rows) => Object.fromEntries((rows ?? []).map(r => [r.code, r]));
@@ -37,7 +37,7 @@ export default function Absorption({ data }) {
   const ltMap  = useMemo(() => toMap(data?.lt),  [data]);
   const actMap = useMemo(() => toMap(data?.act),  [data]);
 
-  const filteredCodes = selectedCode === 'All' ? codes.slice(1) : [selectedCode];
+  const filteredCodes = selectedCodes.size === 0 ? codes : codes.filter(c => selectedCodes.has(c));
   const filteredMonths = selectedMonth === 'All' ? MONTHS : [selectedMonth];
 
   // Chart data: one bar-group per month, summed across selected codes
@@ -92,12 +92,14 @@ export default function Absorption({ data }) {
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div>
-          <label style={labelStyle}>Code:</label>
-          <select value={selectedCode} onChange={e => setSelectedCode(e.target.value)} style={selectStyle}>
-            {codes.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
+        <MultiSelect
+          options={codes}
+          selected={selectedCodes}
+          onChange={setSelectedCodes}
+          label="Code:"
+          allLabel="All codes"
+          minWidth={180}
+        />
         <div>
           <label style={labelStyle}>Month:</label>
           <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} style={selectStyle}>
@@ -105,8 +107,8 @@ export default function Absorption({ data }) {
             {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
-        {(selectedCode !== 'All' || selectedMonth !== 'All') && (
-          <button onClick={() => { setSelectedCode('All'); setSelectedMonth('All'); }}
+        {(selectedCodes.size > 0 || selectedMonth !== 'All') && (
+          <button onClick={() => { setSelectedCodes(new Set()); setSelectedMonth('All'); }}
             style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>
             Clear filters
           </button>
