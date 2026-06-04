@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
+  ComposedChart, BarChart, Bar, Line, LabelList, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { monthLabel, sortedMonths } from '../utils/dataHelpers';
@@ -164,7 +164,12 @@ export default function Distribution({ data }) {
       if (!map[m]) { map[m] = { month: m }; topItems.forEach(i => { map[m][i] = 0; }); }
       map[m][r['Item']] = (map[m][r['Item']] || 0) + (Number(r['Shipped Quantity']) || 0);
     });
-    return { rows: sortedMonths(Object.keys(map)).map(m => map[m]), items: topItems };
+    const rows = sortedMonths(Object.keys(map)).map(m => {
+      const row = map[m];
+      row.__total = topItems.reduce((s, it) => s + (row[it] || 0), 0);
+      return row;
+    });
+    return { rows, items: topItems };
   }, [mixFiltered, mixByItem]);
 
   const mixTotal = mixByItem.reduce((s, r) => s + r.qty, 0);
@@ -349,17 +354,26 @@ export default function Distribution({ data }) {
 
       <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
         <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>Top 8 items stacked by month</div>
-        <ResponsiveContainer width="100%" height={320}>
-          <BarChart data={mixChartData.rows} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+        <ResponsiveContainer width="100%" height={340}>
+          <BarChart data={mixChartData.rows} margin={{ top: 24, right: 20, bottom: 5, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
             <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 12 }} />
             <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
-            <Tooltip contentStyle={TOOLTIP} labelStyle={{ color: '#e2e8f0', fontWeight: 600 }} formatter={(v, n) => [v.toLocaleString(), n]} />
+            <Tooltip contentStyle={TOOLTIP} labelStyle={{ color: '#e2e8f0', fontWeight: 600 }} formatter={(v, n) => n === '__total' ? null : [v.toLocaleString(), n]} />
             <Legend wrapperStyle={{ color: '#94a3b8', fontSize: 12 }} />
-            {mixChartData.items.map((item, idx) => (
-              <Bar key={item} dataKey={item} stackId="a" fill={ITEM_COLORS[idx % ITEM_COLORS.length]}
-                radius={idx === mixChartData.items.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
-            ))}
+            {mixChartData.items.map((item, idx) => {
+              const isLast = idx === mixChartData.items.length - 1;
+              return (
+                <Bar key={item} dataKey={item} stackId="a" fill={ITEM_COLORS[idx % ITEM_COLORS.length]}
+                  radius={isLast ? [3,3,0,0] : [0,0,0,0]}>
+                  {isLast && (
+                    <LabelList dataKey="__total" position="top"
+                      formatter={v => v?.toLocaleString()}
+                      style={{ fill: '#e2e8f0', fontSize: 11, fontWeight: 600 }} />
+                  )}
+                </Bar>
+              );
+            })}
           </BarChart>
         </ResponsiveContainer>
       </div>
