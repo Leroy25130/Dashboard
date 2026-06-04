@@ -7,6 +7,7 @@ export default function WorkOrderStatus({ data }) {
   const [search, setSearch] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedSeq, setSelectedSeq] = useState('All');
+  const [selectedOpName, setSelectedOpName] = useState('All');
 
   const statuses = useMemo(() => [...new Set(data.map(d => d['Work Order Status'] || 'Unknown'))].sort(), [data]);
   const sequences = useMemo(() => {
@@ -21,31 +22,47 @@ export default function WorkOrderStatus({ data }) {
     return ['All', ...vals];
   }, [data]);
 
+  const opNames = useMemo(() => {
+    const vals = [...new Set(data.map(d => {
+      const v = d['Current Operation Name'];
+      return v != null && v !== '' ? String(v) : 'None';
+    }))].sort((a, b) => {
+      if (a === 'None') return 1;
+      if (b === 'None') return -1;
+      return a.localeCompare(b);
+    });
+    return ['All', ...vals];
+  }, [data]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return data.filter(d => {
-      const seq = d['Current Operation Sequence'] != null ? String(d['Current Operation Sequence']) : 'None';
+      const seq    = d['Current Operation Sequence'] != null ? String(d['Current Operation Sequence']) : 'None';
+      const opName = d['Current Operation Name'] != null && d['Current Operation Name'] !== '' ? String(d['Current Operation Name']) : 'None';
       return (selectedStatus === 'All' || (d['Work Order Status'] || 'Unknown') === selectedStatus) &&
-             (selectedSeq === 'All' || seq === selectedSeq) &&
+             (selectedSeq    === 'All' || seq    === selectedSeq) &&
+             (selectedOpName === 'All' || opName === selectedOpName) &&
              (!q || d['Item Number']?.toLowerCase().includes(q) || String(d['Work Order Number']).toLowerCase().includes(q));
     });
-  }, [data, search, selectedStatus, selectedSeq]);
+  }, [data, search, selectedStatus, selectedSeq, selectedOpName]);
 
-  // Status counts reflect current seq + search filters (not the status filter itself)
+  // Status counts reflect all active filters except the status pill itself
   const statusCounts = useMemo(() => {
     const q = search.toLowerCase();
     const counts = {};
     data.forEach(d => {
-      const seq = d['Current Operation Sequence'] != null ? String(d['Current Operation Sequence']) : 'None';
-      if (selectedSeq !== 'All' && seq !== selectedSeq) return;
+      const seq    = d['Current Operation Sequence'] != null ? String(d['Current Operation Sequence']) : 'None';
+      const opName = d['Current Operation Name'] != null && d['Current Operation Name'] !== '' ? String(d['Current Operation Name']) : 'None';
+      if (selectedSeq    !== 'All' && seq    !== selectedSeq)    return;
+      if (selectedOpName !== 'All' && opName !== selectedOpName) return;
       if (q && !d['Item Number']?.toLowerCase().includes(q) && !String(d['Work Order Number']).toLowerCase().includes(q)) return;
       const s = d['Work Order Status'] || 'Unknown';
       counts[s] = (counts[s] || 0) + 1;
     });
     return counts;
-  }, [data, selectedSeq, search]);
+  }, [data, selectedSeq, selectedOpName, search]);
 
-  const clearAll = selectedStatus !== 'All' || selectedSeq !== 'All' || search;
+  const clearAll = selectedStatus !== 'All' || selectedSeq !== 'All' || selectedOpName !== 'All' || search;
 
   return (
     <div>
@@ -82,10 +99,18 @@ export default function WorkOrderStatus({ data }) {
             ))}
           </select>
         </div>
+        <div>
+          <label style={labelStyle}>Current Op Name:</label>
+          <select value={selectedOpName} onChange={e => setSelectedOpName(e.target.value)} style={selectStyle}>
+            {opNames.map(n => (
+              <option key={n} value={n}>{n === 'All' ? 'All' : n === 'None' ? 'None (blank)' : n}</option>
+            ))}
+          </select>
+        </div>
         <input placeholder="Search by Item Number or WO Number…" value={search} onChange={e => setSearch(e.target.value)}
-          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 12px', fontSize: 13, width: 280 }} />
+          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 12px', fontSize: 13, width: 240 }} />
         {clearAll && (
-          <button onClick={() => { setSelectedStatus('All'); setSelectedSeq('All'); setSearch(''); }}
+          <button onClick={() => { setSelectedStatus('All'); setSelectedSeq('All'); setSelectedOpName('All'); setSearch(''); }}
             style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>
             Clear filters
           </button>
