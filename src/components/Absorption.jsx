@@ -9,15 +9,14 @@ const MONTHS = ['Jan 2026','Feb 2026','Mar 2026','Apr 2026','May 2026','Jun 2026
                  'Jul 2026','Aug 2026','Sep 2026','Oct 2026','Nov 2026','Dec 2026'];
 
 const SERIES = [
-  { key: 'AOP',             label: 'AOP',             color: '#3b82f6' },
-  { key: 'Latest Estimate', label: 'Latest Estimate', color: '#8b5cf6' },
-  { key: 'Actual',          label: 'Actual',          color: '#10b981' },
+  { key: 'AOP',    label: 'AOP Release',    color: '#3b82f6' },
+  { key: 'Actual', label: 'Actual Release', color: '#10b981' },
 ];
 
 export default function Absorption({ data }) {
   const [selectedCodes, setSelectedCodes] = useState(new Set());
   const [selectedMonth, setSelectedMonth] = useState('All');
-  const [visibleSeries, setVisibleSeries] = useState(new Set(['AOP', 'Latest Estimate', 'Actual']));
+  const [visibleSeries, setVisibleSeries] = useState(new Set(['AOP', 'Actual']));
 
   const toggleSeries = (key) => {
     setVisibleSeries(prev => {
@@ -42,52 +41,44 @@ export default function Absorption({ data }) {
 
   // Chart data: one bar-group per month, summed across selected codes
   const chartData = useMemo(() => filteredMonths.map(m => {
-    let aop = 0, lt = 0, act = 0;
+    let aop = 0, act = 0;
     filteredCodes.forEach(code => {
       aop += aopMap[code]?.[m] ?? 0;
-      lt  += ltMap[code]?.[m]  ?? 0;
       act += actMap[code]?.[m] ?? 0;
     });
-    return { month: m, AOP: aop, 'Latest Estimate': lt, Actual: act };
-  }), [filteredCodes, filteredMonths, aopMap, ltMap, actMap]);
+    return { month: m, AOP: aop, Actual: act };
+  }), [filteredCodes, filteredMonths, aopMap, actMap]);
 
   // Table data: one row per code × month combination (filtered)
   const tableRows = useMemo(() => {
     const rows = [];
     filteredCodes.forEach(code => {
-      const desc = aopMap[code]?.description || ltMap[code]?.description || '';
+      const desc = aopMap[code]?.description || '';
       filteredMonths.forEach(m => {
         const aop = aopMap[code]?.[m] ?? 0;
-        const lt  = ltMap[code]?.[m]  ?? 0;
         const act = actMap[code]?.[m] ?? 0;
-        rows.push({ code, desc, month: m, aop, lt, act });
+        rows.push({ code, desc, month: m, aop, act });
       });
     });
     return rows;
-  }, [filteredCodes, filteredMonths, aopMap, ltMap, actMap]);
+  }, [filteredCodes, filteredMonths, aopMap, actMap]);
 
   // Summary pills across filtered selection
   const totalAop = chartData.reduce((s, r) => s + r.AOP, 0);
-  const totalLt  = chartData.reduce((s, r) => s + r['Latest Estimate'], 0);
   const totalAct = chartData.reduce((s, r) => s + r.Actual, 0);
   const vsAop    = totalAop > 0 ? (((totalAct - totalAop) / totalAop) * 100).toFixed(1) : 'N/A';
-  const vsLt     = totalLt  > 0 ? (((totalAct - totalLt)  / totalLt)  * 100).toFixed(1) : 'N/A';
 
   return (
     <div>
-      <SectionHeader title="Actual & Projected Volume vs AOP / Latest Estimate" icon="🎯" />
+      <SectionHeader title="Actual Release vs AOP Release" icon="🎯" />
 
       {/* Summary pills */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <Pill label="Total AOP"            value={totalAop.toLocaleString()} color="#3b82f6" />
-        <Pill label="Total Latest Estimate" value={totalLt.toLocaleString()}  color="#8b5cf6" />
-        <Pill label="Total Actual"          value={totalAct.toLocaleString()} color="#10b981" />
+        <Pill label="Total AOP Release"    value={totalAop.toLocaleString()} color="#3b82f6" />
+        <Pill label="Total Actual Release" value={totalAct.toLocaleString()} color="#10b981" />
         <Pill label="Actual vs AOP"
           value={vsAop === 'N/A' ? '—' : `${vsAop > 0 ? '+' : ''}${vsAop}%`}
           color={vsAop === 'N/A' ? '#64748b' : Number(vsAop) >= 0 ? '#10b981' : '#ef4444'} />
-        <Pill label="Actual vs Latest Est."
-          value={vsLt === 'N/A' ? '—' : `${vsLt > 0 ? '+' : ''}${vsLt}%`}
-          color={vsLt === 'N/A' ? '#64748b' : Number(vsLt) >= 0 ? '#10b981' : '#ef4444'} />
       </div>
 
       {/* Filters */}
@@ -160,7 +151,7 @@ export default function Absorption({ data }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: '#1e293b' }}>
-              {['Code','Description','Month','AOP','Latest Estimate','Actual','vs AOP','vs Latest Est.'].map(h => (
+              {['Code','Description','Month','AOP Release','Actual Release','vs AOP'].map(h => (
                 <th key={h} style={th}>{h}</th>
               ))}
             </tr>
@@ -168,20 +159,15 @@ export default function Absorption({ data }) {
           <tbody>
             {tableRows.map((r, i) => {
               const vsAopPct = r.aop > 0 ? (((r.act - r.aop) / r.aop) * 100).toFixed(1) : null;
-              const vsLtPct  = r.lt  > 0 ? (((r.act - r.lt)  / r.lt)  * 100).toFixed(1) : null;
               return (
                 <tr key={i} style={{ background: i % 2 === 0 ? '#0f172a' : '#1e293b' }}>
                   <td style={td}>{r.code}</td>
                   <td style={td}>{r.desc}</td>
                   <td style={td}>{r.month}</td>
                   <td style={td}>{r.aop.toLocaleString()}</td>
-                  <td style={td}>{r.lt.toLocaleString()}</td>
                   <td style={td}>{r.act.toLocaleString()}</td>
                   <td style={{ ...td, color: varColor(vsAopPct), fontWeight: 600 }}>
                     {vsAopPct !== null ? `${vsAopPct > 0 ? '+' : ''}${vsAopPct}%` : '—'}
-                  </td>
-                  <td style={{ ...td, color: varColor(vsLtPct), fontWeight: 600 }}>
-                    {vsLtPct !== null ? `${vsLtPct > 0 ? '+' : ''}${vsLtPct}%` : '—'}
                   </td>
                 </tr>
               );
