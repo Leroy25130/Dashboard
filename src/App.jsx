@@ -8,6 +8,7 @@ import Timeliness from './components/Timeliness';
 import Yield from './components/Yield';
 import Routing from './components/Routing';
 import Absorption from './components/Absorption';
+import CycleCount from './components/CycleCount';
 import UploadPanel from './components/UploadPanel';
 import Overview from './pages/Overview';
 

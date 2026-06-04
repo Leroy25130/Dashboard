@@ -2,11 +2,13 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import defaultWO from '../data/wo_data.json';
 import defaultAbsorption from '../data/absorption_data.json';
+import defaultCycleCount from '../data/cycle_count_data.json';
 
 const DataContext = createContext(null);
 
 const LS_WO  = 'caldera_wo_data';
 const LS_ABS = 'caldera_absorption_data';
+const LS_CC  = 'caldera_cycle_count_data';
 
 function loadLS(key, fallback) {
   try {
@@ -106,6 +108,32 @@ function parseAbsorptionFile(workbook) {
   };
 }
 
+// ── Cycle Count file parser ───────────────────────────────────────────────────
+function parseCycleCountFile(workbook) {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+  let headerIdx = raw.findIndex(r => r.some(v => String(v ?? '').includes('Count Sequence') || String(v ?? '').includes('Item Number')));
+  if (headerIdx === -1) throw new Error('Could not find header row in Cycle Count file');
+
+  const headers = raw[headerIdx];
+  const rows = raw.slice(headerIdx + 1)
+    .filter(r => r.some(v => v !== null))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, i) => {
+        let v = r[i] ?? null;
+        if (h === 'Count Due Date' && v !== null && typeof v === 'number') {
+          const d = XLSX.SSF.parse_date_code(v);
+          if (d) v = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+        }
+        obj[h] = v;
+      });
+      return obj;
+    });
+  return rows;
+}
+
 // ── Detect file type and parse ────────────────────────────────────────────────
 export function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
@@ -121,8 +149,10 @@ export function parseExcelFile(file) {
           resolve({ type: 'wo', data: parseWOFile(wb) });
         } else if (sheetNames.includes('aop') || sheetNames.includes('dem') || firstCell.includes('tvt budget')) {
           resolve({ type: 'absorption', data: parseAbsorptionFile(wb) });
+        } else if (firstCell.includes('cycle count') || sheetNames.includes('cycle count')) {
+          resolve({ type: 'cyclecount', data: parseCycleCountFile(wb) });
         } else {
-          reject(new Error('File not recognised. Expected a Work Order Detail Report or an AOP/ACT volume file.'));
+          reject(new Error('File not recognised. Expected a Work Order Detail Report, AOP/ACT volume file, or Cycle Count Report.'));
         }
       } catch (err) {
         reject(err);
@@ -135,9 +165,10 @@ export function parseExcelFile(file) {
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 export function DataProvider({ children }) {
-  const [woData,       setWOData]       = useState(() => loadLS(LS_WO,  defaultWO));
+  const [woData,         setWOData]         = useState(() => loadLS(LS_WO,  defaultWO));
   const [absorptionData, setAbsorptionData] = useState(() => loadLS(LS_ABS, defaultAbsorption));
-  const [lastUpdated,  setLastUpdated]  = useState(() => {
+  const [cycleCountData, setCycleCountData] = useState(() => loadLS(LS_CC,  defaultCycleCount));
+  const [lastUpdated,    setLastUpdated]    = useState(() => {
     try { return JSON.parse(localStorage.getItem('caldera_last_updated') || '{}'); } catch { return {}; }
   });
 
@@ -157,8 +188,16 @@ export function DataProvider({ children }) {
     localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
   };
 
+  const updateCycleCount = (data, filename) => {
+    setCycleCountData(data);
+    localStorage.setItem(LS_CC, JSON.stringify(data));
+    const ts = { ...lastUpdated, cyclecount: { filename, at: new Date().toISOString() } };
+    setLastUpdated(ts);
+    localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
+  };
+
   return (
-    <DataContext.Provider value={{ woData, absorptionData, updateWO, updateAbsorption, lastUpdated }}>
+    <DataContext.Provider value={{ woData, absorptionData, cycleCountData, updateWO, updateAbsorption, updateCycleCount, lastUpdated }}>
       {children}
     </DataContext.Provider>
   );
