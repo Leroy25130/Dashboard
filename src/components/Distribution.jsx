@@ -6,6 +6,10 @@ import {
 import { monthLabel, sortedMonths } from '../utils/dataHelpers';
 import SectionHeader from './SectionHeader';
 import MultiSelect from './MultiSelect';
+import demandData from '../data/demand_data.json';
+
+const DEMAND_MONTHS = ['Jan 2026','Feb 2026','Mar 2026','Apr 2026','May 2026','Jun 2026',
+                       'Jul 2026','Aug 2026','Sep 2026','Oct 2026','Nov 2026','Dec 2026'];
 
 function toISO(d) { return d?.replace(/\//g, '-'); }
 
@@ -49,6 +53,10 @@ export default function Distribution({ data }) {
   // ── Mix state ─────────────────────────────────────────────────────────────
   const [mixMonths, setMixMonths] = useState(new Set());
   const [mixItems,  setMixItems]  = useState(new Set());
+
+  // ── Demand vs Shipment state ──────────────────────────────────────────────
+  const [dvsMonths, setDvsMonths] = useState(new Set());
+  const [dvsItems,  setDvsItems]  = useState(new Set());
 
   // ── Shipments (grouped) ───────────────────────────────────────────────────
   const shipments = useMemo(() => {
@@ -161,6 +169,67 @@ export default function Distribution({ data }) {
 
   const mixTotal = mixByItem.reduce((s, r) => s + r.qty, 0);
   const mixHasFilter = mixMonths.size > 0 || mixItems.size > 0;
+
+  // ── Demand vs Shipment ────────────────────────────────────────────────────
+  // Demand items list (from static demand data)
+  const demandItems = useMemo(() => demandData.map(d => d.item), []);
+
+  // Shipment by item × month (2026 only)
+  const shipByItemMonth = useMemo(() => {
+    const map = {};
+    data.forEach(r => {
+      const item = r['Item']; if (!item) return;
+      const date = r['Shipped Date']; if (!date) return;
+      const yr = date.split('/')[0];
+      if (yr !== '2026') return;
+      const m = monthLabel(toISO(date));
+      if (!map[item]) map[item] = {};
+      map[item][m] = (map[item][m] || 0) + (Number(r['Shipped Quantity']) || 0);
+    });
+    return map;
+  }, [data]);
+
+  // Filtered demand items
+  const dvsFilteredItems = useMemo(() =>
+    demandData.filter(d =>
+      (dvsItems.size === 0 || dvsItems.has(d.item))
+    ),
+  [dvsItems]);
+
+  const dvsFilteredMonths = dvsMonths.size > 0
+    ? DEMAND_MONTHS.filter(m => dvsMonths.has(m))
+    : DEMAND_MONTHS;
+
+  // Chart data: by month, summed across filtered items
+  const dvsChartData = useMemo(() =>
+    dvsFilteredMonths.map(month => {
+      const demand   = dvsFilteredItems.reduce((s, d) => s + (d[month] || 0), 0);
+      const shipped  = dvsFilteredItems.reduce((s, d) => s + (shipByItemMonth[d.item]?.[month] || 0), 0);
+      const coverage = demand > 0 ? +((shipped / demand) * 100).toFixed(1) : null;
+      return { month, Demand: demand, Shipped: shipped, 'Coverage %': coverage };
+    }),
+  [dvsFilteredItems, dvsFilteredMonths, shipByItemMonth]);
+
+  // Table data: by item × month
+  const dvsTableRows = useMemo(() => {
+    const rows = [];
+    dvsFilteredItems.forEach(d => {
+      dvsFilteredMonths.forEach(month => {
+        const demand  = d[month] || 0;
+        const shipped = shipByItemMonth[d.item]?.[month] || 0;
+        const gap     = shipped - demand;
+        const coverage = demand > 0 ? +((shipped / demand) * 100).toFixed(1) : null;
+        rows.push({ item: d.item, desc: d.description, month, demand, shipped, gap, coverage });
+      });
+    });
+    return rows;
+  }, [dvsFilteredItems, dvsFilteredMonths, shipByItemMonth]);
+
+  const dvsTotalDemand  = dvsChartData.reduce((s, r) => s + r.Demand, 0);
+  const dvsTotalShipped = dvsChartData.reduce((s, r) => s + r.Shipped, 0);
+  const dvsTotalCoverage = dvsTotalDemand > 0 ? ((dvsTotalShipped / dvsTotalDemand) * 100).toFixed(1) : 'N/A';
+  const dvsCoverageColor = dvsTotalCoverage === 'N/A' ? '#64748b' : Number(dvsTotalCoverage) >= 95 ? '#10b981' : Number(dvsTotalCoverage) >= 80 ? '#f59e0b' : '#ef4444';
+  const dvsHasFilter = dvsMonths.size > 0 || dvsItems.size > 0;
 
   return (
     <div>
@@ -296,7 +365,7 @@ export default function Distribution({ data }) {
       </div>
 
       <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>{mixByItem.length} items shown</div>
-      <div style={{ overflowX: 'auto' }}>
+      <div style={{ overflowX: 'auto', marginBottom: 32 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead><tr style={{ background: '#1e293b' }}>
             {['Item','Description','Shipped Qty','% of Total'].map(h => <th key={h} style={th}>{h}</th>)}
@@ -308,6 +377,65 @@ export default function Distribution({ data }) {
                 <td style={td}>{r.desc}</td>
                 <td style={td}>{r.qty.toLocaleString()}</td>
                 <td style={td}>{mixTotal > 0 ? ((r.qty / mixTotal) * 100).toFixed(1) : '0.0'}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Demand vs Shipment ────────────────────────────────────────────── */}
+      <div id="dist-demand"><SectionHeader title="Demand vs Shipment" icon="📊" /></div>
+
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        <Pill label="Total Demand"   value={dvsTotalDemand.toLocaleString()}  color="#8b5cf6" />
+        <Pill label="Total Shipped"  value={dvsTotalShipped.toLocaleString()} color="#3b82f6" />
+        <Pill label="Coverage %"     value={dvsTotalCoverage === 'N/A' ? '—' : `${dvsTotalCoverage}%`} color={dvsCoverageColor} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <MultiSelect options={DEMAND_MONTHS} selected={dvsMonths} onChange={setDvsMonths} label="Month:" allLabel="All months" minWidth={180} />
+        <MultiSelect options={demandItems}   selected={dvsItems}  onChange={setDvsItems}  label="Item:"  allLabel="All items"   minWidth={180} />
+        {dvsHasFilter && (
+          <button onClick={() => { setDvsMonths(new Set()); setDvsItems(new Set()); }} style={clearBtnStyle}>Clear filters</button>
+        )}
+      </div>
+
+      <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <ResponsiveContainer width="100%" height={320}>
+          <ComposedChart data={dvsChartData} margin={{ top: 5, right: 50, bottom: 5, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+            <YAxis yAxisId="left"  tick={{ fill: '#94a3b8', fontSize: 12 }} />
+            <YAxis yAxisId="right" orientation="right" domain={[0, 120]} unit="%" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+            <Tooltip contentStyle={TOOLTIP} labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
+              formatter={(v, n) => n === 'Coverage %' ? [`${v}%`, n] : [v?.toLocaleString(), n]} />
+            <Legend wrapperStyle={{ color: '#94a3b8', fontSize: 12 }} />
+            <Bar  yAxisId="left"  dataKey="Demand"  fill="#8b5cf6" radius={[3,3,0,0]} />
+            <Bar  yAxisId="left"  dataKey="Shipped" fill="#3b82f6" radius={[3,3,0,0]} />
+            <Line yAxisId="right" type="monotone" dataKey="Coverage %" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead><tr style={{ background: '#1e293b' }}>
+            {['Item','Description','Month','Demand','Shipped','Gap','Coverage %'].map(h => <th key={h} style={th}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {dvsTableRows.map((r, i) => (
+              <tr key={i} style={{ background: i % 2 === 0 ? '#0f172a' : '#1e293b' }}>
+                <td style={td}>{r.item}</td>
+                <td style={td}>{r.desc}</td>
+                <td style={td}>{r.month}</td>
+                <td style={td}>{r.demand.toLocaleString()}</td>
+                <td style={td}>{r.shipped.toLocaleString()}</td>
+                <td style={{ ...td, color: r.gap >= 0 ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+                  {r.gap > 0 ? `+${r.gap.toLocaleString()}` : r.gap.toLocaleString()}
+                </td>
+                <td style={{ ...td, color: r.coverage === null ? '#64748b' : r.coverage >= 95 ? '#10b981' : r.coverage >= 80 ? '#f59e0b' : '#ef4444', fontWeight: 600 }}>
+                  {r.coverage !== null ? `${r.coverage}%` : '—'}
+                </td>
               </tr>
             ))}
           </tbody>

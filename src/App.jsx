@@ -185,6 +185,7 @@ function Dashboard() {
               { id: 'dist-otif',   label: '🎯 OTIF Performance' },
               { id: 'dist-volume', label: '📦 Volume Shipped' },
               { id: 'dist-mix',    label: '🏷️ Product Mix' },
+              { id: 'dist-demand', label: '📊 Demand vs Shipment' },
             ].map(s => (
               <button key={s.id}
                 onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
