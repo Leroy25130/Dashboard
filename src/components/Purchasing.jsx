@@ -208,6 +208,7 @@ function LateDeliveriesSection({ data }) {
 
   const allSuppliers = useMemo(() => [...new Set(data.map(r => r['Supplier Name']).filter(Boolean))].sort(), [data]);
   const [selSuppliers, setSelSuppliers] = useState(new Set());
+  const [chartView, setChartView] = useState('late'); // 'open' | 'late' | 'ontime'
 
   const openLines = useMemo(() => data.filter(r => OPEN_STATUSES.has(r['Order Status'])), [data]);
 
@@ -225,9 +226,13 @@ function LateDeliveriesSection({ data }) {
     selSuppliers.size === 0 || selSuppliers.has(r['Supplier Name'])
   ), [lateLines, selSuppliers]);
 
+  const chartSourceLines = chartView === 'open' ? openLines : chartView === 'late' ? lateLines : onTimeLines;
+  const chartColor       = chartView === 'open' ? '#3b82f6' : chartView === 'late' ? '#ef4444' : '#10b981';
+  const chartLabel       = chartView === 'open' ? 'Open Lines' : chartView === 'late' ? 'Late Lines' : 'On-Time Lines';
+
   const chartData = useMemo(() => {
     const map = {};
-    lateLines.forEach(r => {
+    chartSourceLines.forEach(r => {
       const s = r['Supplier Name'] || 'Unknown';
       map[s] = (map[s] || 0) + 1;
     });
@@ -235,7 +240,7 @@ function LateDeliveriesSection({ data }) {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
       .map(([s, c]) => ({ supplier: s.length > 22 ? s.slice(0, 22) + '…' : s, fullName: s, count: c }));
-  }, [lateLines]);
+  }, [chartSourceLines]);
 
   const tableRows = useMemo(() => {
     return [...filteredLate]
@@ -247,30 +252,37 @@ function LateDeliveriesSection({ data }) {
       .sort((a, b) => (b._delay || 0) - (a._delay || 0));
   }, [filteredLate]);
 
+  const VIEWS = [
+    { id: 'open',   label: 'Open Lines',    value: openLines.length,   color: '#3b82f6' },
+    { id: 'late',   label: 'Late Lines',    value: lateLines.length,   color: '#ef4444' },
+    { id: 'ontime', label: 'On-Time Lines', value: onTimeLines.length, color: '#10b981' },
+  ];
+
   return (
     <div id="po-late">
       <SectionHeader title="Late Deliveries" icon="⏰" />
 
-      {/* Summary pills */}
+      {/* Summary pills — clickable to switch chart view */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
-        <Pill label="Open Lines"   value={openLines.length}  color="#3b82f6" />
-        <Pill label="Late Lines"   value={lateLines.length}  color="#ef4444" />
-        <Pill label="On-Time Lines" value={onTimeLines.length} color="#10b981" />
+        {VIEWS.map(v => (
+          <Pill key={v.id} label={v.label} value={v.value} color={v.color}
+            active={chartView === v.id} onClick={() => setChartView(v.id)} />
+        ))}
       </div>
 
-      {/* Bar chart: top 10 suppliers with most late lines */}
+      {/* Bar chart: top 10 suppliers for selected view */}
       <div style={{ background: '#1e293b', borderRadius: 10, padding: 20, marginBottom: 24 }}>
-        <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 12 }}>Top 10 Suppliers — Late Lines</div>
+        <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 12 }}>Top 10 Suppliers — {chartLabel}</div>
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 80 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
             <XAxis dataKey="supplier" tick={{ fill: '#94a3b8', fontSize: 11 }} angle={-35} textAnchor="end" interval={0} />
             <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
             <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#334155' }}
-              formatter={(v, n, p) => [v, 'Late Lines']}
+              formatter={(v) => [v, chartLabel]}
               labelFormatter={(l, payload) => payload?.[0]?.payload?.fullName || l}
             />
-            <Bar dataKey="count" name="Late Lines" fill="#ef4444" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="count" name={chartLabel} fill={chartColor} radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
