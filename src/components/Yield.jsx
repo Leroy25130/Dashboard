@@ -12,15 +12,17 @@ export default function Yield({ data }) {
 
   const rows = useMemo(() => data.map(d => ({
     ...d,
-    month: monthLabel(d['Actual Complete Date']),
+    month: monthLabel(d['Actual Complete Date']) === 'Unknown' ? 'No Date' : monthLabel(d['Actual Complete Date']),
     yieldPct: d['Work Order Quantity'] > 0
       ? +((d['Quantity Completed'] / d['Work Order Quantity']) * 100).toFixed(1)
       : null,
   })), [data]);
 
   const months = useMemo(() => {
-    const all = rows.map(r => r.month).filter(m => m !== 'Unknown');
-    return sortedMonths(all);
+    const dated = rows.filter(r => r.month !== 'No Date').map(r => r.month);
+    const sorted = sortedMonths(dated);
+    const hasNoDate = rows.some(r => r.month === 'No Date');
+    return hasNoDate ? [...sorted, 'No Date'] : sorted;
   }, [rows]);
 
   const items = useMemo(() =>
