@@ -157,6 +157,13 @@ export default function Distribution({ data }) {
   // Stacked bar chart: top 8 items per month
   const mixChartData = useMemo(() => {
     const topItems = mixByItem.slice(0, 8).map(i => i.item);
+    // Build totals per month across ALL items (for accurate label)
+    const allTotals = {};
+    mixFiltered.forEach(r => {
+      const m = monthLabel(toISO(r['Shipped Date']));
+      if (m === 'Unknown') return;
+      allTotals[m] = (allTotals[m] || 0) + (Number(r['Shipped Quantity']) || 0);
+    });
     const map = {};
     mixFiltered.filter(r => topItems.includes(r['Item'])).forEach(r => {
       const m = monthLabel(toISO(r['Shipped Date']));
@@ -166,7 +173,7 @@ export default function Distribution({ data }) {
     });
     const rows = sortedMonths(Object.keys(map)).map(m => {
       const row = map[m];
-      row.__total = topItems.reduce((s, it) => s + (row[it] || 0), 0);
+      row.__total = allTotals[m] || 0;
       return row;
     });
     return { rows, items: topItems };
