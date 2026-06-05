@@ -216,6 +216,7 @@ function Dashboard() {
             {[
               { id: 'po-status',    label: '📋 PO Status' },
               { id: 'po-late',      label: '⏰ Late Deliveries' },
+              { id: 'po-aging',     label: '📅 PO Aging' },
               { id: 'po-financial', label: '💰 Financial Exposure' },
               { id: 'po-supplier',  label: '🏭 Supplier Breakdown' },
             ].map(s => (

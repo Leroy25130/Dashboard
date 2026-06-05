@@ -341,7 +341,161 @@ function LateDeliveriesSection({ data }) {
   );
 }
 
-// ── Section 3: Financial Exposure ─────────────────────────────────────────────
+// ── Section 3: PO Aging ───────────────────────────────────────────────────────
+const AGING_BUCKETS = [
+  { label: '0–15 days',  min: 0,   max: 15  },
+  { label: '16–30 days', min: 16,  max: 30  },
+  { label: '31–60 days', min: 31,  max: 60  },
+  { label: '61–90 days', min: 61,  max: 90  },
+  { label: '> 90 days',  min: 91,  max: Infinity },
+];
+const AGING_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#f97316', '#ef4444'];
+
+function bucket(days) {
+  return AGING_BUCKETS.findIndex(b => days >= b.min && days <= b.max);
+}
+
+function POAgingSection({ data }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const allSuppliers = useMemo(() => [...new Set(data.map(r => r['Supplier Name']).filter(Boolean))].sort(), [data]);
+  const [selSuppliers, setSelSuppliers] = useState(new Set());
+  const [activeBucket, setActiveBucket] = useState(null); // index into AGING_BUCKETS
+
+  const openLines = useMemo(() => data.filter(r => OPEN_STATUSES.has(r['Order Status'])), [data]);
+
+  const agedLines = useMemo(() => openLines.map(r => {
+    const created = parseDate(r['PO Creation Date ']);
+    const ageDays = created ? Math.floor((today - created) / 86400000) : null;
+    return { ...r, _ageDays: ageDays, _bucket: ageDays != null ? bucket(ageDays) : -1 };
+  }), [openLines]);
+
+  const bucketCounts = useMemo(() => AGING_BUCKETS.map((b, i) => ({
+    label: b.label,
+    count: agedLines.filter(r => r._bucket === i).length,
+    value: agedLines.filter(r => r._bucket === i).reduce((s, r) => s + (Number(r['Extended Price']) || 0), 0),
+  })), [agedLines]);
+
+  const filtered = useMemo(() => agedLines.filter(r => {
+    if (selSuppliers.size > 0 && !selSuppliers.has(r['Supplier Name'])) return false;
+    if (activeBucket !== null && r._bucket !== activeBucket) return false;
+    return true;
+  }).sort((a, b) => (b._ageDays ?? -1) - (a._ageDays ?? -1)), [agedLines, selSuppliers, activeBucket]);
+
+  const avgAge = useMemo(() => {
+    const valid = agedLines.filter(r => r._ageDays != null);
+    if (!valid.length) return null;
+    return Math.round(valid.reduce((s, r) => s + r._ageDays, 0) / valid.length);
+  }, [agedLines]);
+
+  const maxAge = useMemo(() => Math.max(...agedLines.map(r => r._ageDays ?? 0)), [agedLines]);
+
+  return (
+    <div id="po-aging">
+      <SectionHeader title="PO Aging" icon="📅" />
+
+      {/* Summary pills */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+        <Pill label="Open Lines"  value={openLines.length} color="#3b82f6" />
+        <Pill label="Avg Age (days)" value={avgAge ?? '—'} color="#f59e0b" />
+        <Pill label="Max Age (days)" value={maxAge}        color="#ef4444" />
+      </div>
+
+      {/* Aging bucket pills — clickable to filter table */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+        {bucketCounts.map((b, i) => (
+          <Pill key={b.label} label={b.label} value={b.count} color={AGING_COLORS[i]}
+            active={activeBucket === i} onClick={() => setActiveBucket(prev => prev === i ? null : i)} />
+        ))}
+        {activeBucket !== null && (
+          <button onClick={() => setActiveBucket(null)}
+            style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13, alignSelf: 'center' }}>
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Bar chart by bucket */}
+      <div style={{ background: '#1e293b', borderRadius: 10, padding: 20, marginBottom: 24 }}>
+        <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 12 }}>Open PO Lines by Age</div>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={bucketCounts} margin={{ top: 4, right: 20, left: 0, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+            <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
+            <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#334155' }}
+              formatter={(v, name) => [v, name === 'count' ? 'Lines' : 'Value']} />
+            <Bar dataKey="count" name="count" radius={[4, 4, 0, 0]}>
+              {bucketCounts.map((_, i) => <Cell key={i} fill={AGING_COLORS[i]} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+        <MultiSelect options={allSuppliers} selected={selSuppliers} onChange={setSelSuppliers} label="Supplier" minWidth={200} />
+        {selSuppliers.size > 0 && (
+          <button onClick={() => setSelSuppliers(new Set())}
+            style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Table */}
+      <div style={{ background: '#1e293b', borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
+        <div style={{ padding: '12px 16px', color: '#94a3b8', fontSize: 13, borderBottom: '1px solid #334155' }}>
+          {filtered.length} lines{activeBucket !== null ? ` — ${AGING_BUCKETS[activeBucket].label}` : ''}
+        </div>
+        <div style={{ overflowX: 'auto', maxHeight: 400, overflowY: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead style={{ position: 'sticky', top: 0, background: '#1e293b', zIndex: 1 }}>
+              <tr>
+                <th style={th}>Document #</th>
+                <th style={th}>Line #</th>
+                <th style={th}>Supplier</th>
+                <th style={th}>Item Description</th>
+                <th style={th}>Creation Date</th>
+                <th style={{ ...th, textAlign: 'right' }}>Age (days)</th>
+                <th style={th}>Bucket</th>
+                <th style={{ ...th, textAlign: 'right' }}>Open Qty</th>
+                <th style={{ ...th, textAlign: 'right' }}>Extended Price</th>
+                <th style={th}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.slice(0, 300).map((r, i) => {
+                const bi = r._bucket;
+                const color = bi >= 0 ? AGING_COLORS[bi] : '#64748b';
+                return (
+                  <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : '#162032' }}>
+                    <td style={td}>{r['Document Number']}</td>
+                    <td style={td}>{r['Line Number']}</td>
+                    <td style={td}>{r['Supplier Name']}</td>
+                    <td style={{ ...td, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r['Item Description']}</td>
+                    <td style={td}>{r['PO Creation Date ']}</td>
+                    <td style={{ ...td, textAlign: 'right', color, fontWeight: 600 }}>{r._ageDays ?? '—'}</td>
+                    <td style={td}><span style={{ background: color + '22', color, borderRadius: 4, padding: '2px 8px', fontSize: 12, fontWeight: 600 }}>{bi >= 0 ? AGING_BUCKETS[bi].label : '—'}</span></td>
+                    <td style={{ ...td, textAlign: 'right' }}>{fmtNum(r['Open Quantity'])}</td>
+                    <td style={{ ...td, textAlign: 'right' }}>{fmtNum(Number(r['Extended Price']), 0)}</td>
+                    <td style={td}><span style={{ background: (STATUS_COLORS[r['Order Status']] || '#94a3b8') + '22', color: STATUS_COLORS[r['Order Status']] || '#94a3b8', borderRadius: 4, padding: '2px 8px', fontSize: 12, fontWeight: 600 }}>{r['Order Status']}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {filtered.length > 300 && (
+            <div style={{ padding: '10px 16px', color: '#64748b', fontSize: 12 }}>Showing 300 of {filtered.length} rows</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Section 4: Financial Exposure ─────────────────────────────────────────────
 function FinancialSection({ data }) {
   const allSuppliers = useMemo(() => [...new Set(data.map(r => r['Supplier Name']).filter(Boolean))].sort(), [data]);
   const allCurrencies = useMemo(() => [...new Set(data.map(r => r['Currency Code']).filter(Boolean))].sort(), [data]);
@@ -648,6 +802,7 @@ export default function Purchasing({ data }) {
 
       <POStatusSection       data={data} />
       <LateDeliveriesSection data={data} />
+      <POAgingSection        data={data} />
       <FinancialSection      data={data} />
       <SupplierBreakdownSection data={data} />
 
