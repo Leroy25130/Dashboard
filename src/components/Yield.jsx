@@ -8,6 +8,7 @@ export default function Yield({ data }) {
   const [search, setSearch] = useState('');
   const [threshold, setThreshold] = useState(95);
   const [selectedMonths, setSelectedMonths] = useState(new Set());
+  const [selectedItems, setSelectedItems] = useState(new Set());
 
   const rows = useMemo(() => data.map(d => ({
     ...d,
@@ -22,13 +23,18 @@ export default function Yield({ data }) {
     return sortedMonths(all);
   }, [rows]);
 
+  const items = useMemo(() =>
+    [...new Set(rows.map(r => r['Item Number']).filter(Boolean))].sort(),
+  [rows]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return rows.filter(d =>
       (selectedMonths.size === 0 || selectedMonths.has(d.month)) &&
+      (selectedItems.size === 0 || selectedItems.has(d['Item Number'])) &&
       (!q || d['Item Number']?.toLowerCase().includes(q) || String(d['Work Order Number']).toLowerCase().includes(q))
     );
-  }, [rows, search, selectedMonths]);
+  }, [rows, search, selectedMonths, selectedItems]);
 
   const chartData = useMemo(() =>
     filtered.filter(r => r.yieldPct !== null)
@@ -43,7 +49,7 @@ export default function Yield({ data }) {
 
   const below = filtered.filter(r => r.yieldPct !== null && r.yieldPct < threshold).length;
 
-  const hasFilters = selectedMonths.size > 0 || search;
+  const hasFilters = selectedMonths.size > 0 || selectedItems.size > 0 || search;
 
   return (
     <div>
@@ -68,10 +74,18 @@ export default function Yield({ data }) {
           allLabel="All months"
           minWidth={180}
         />
+        <MultiSelect
+          options={items}
+          selected={selectedItems}
+          onChange={setSelectedItems}
+          label="Item Number:"
+          allLabel="All items"
+          minWidth={180}
+        />
         <input placeholder="Search by Item Number or WO Number…" value={search} onChange={e => setSearch(e.target.value)}
           style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '5px 12px', fontSize: 13, width: 280 }} />
         {hasFilters && (
-          <button onClick={() => { setSelectedMonths(new Set()); setSearch(''); }}
+          <button onClick={() => { setSelectedMonths(new Set()); setSelectedItems(new Set()); setSearch(''); }}
             style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>
             Clear filters
           </button>
