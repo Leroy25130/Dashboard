@@ -16,7 +16,7 @@ const LS_DIST    = 'caldera_distribution_data';
 const LS_PO      = 'caldera_po_data';
 const LS_INV     = 'caldera_inventory_data';
 const LS_VERSION = 'caldera_data_version';
-const CACHE_VERSION = '3';  // bump this whenever default data changes
+const CACHE_VERSION = '4';  // bump this whenever default data changes
 
 // Clear stale localStorage if version doesn't match
 if (localStorage.getItem(LS_VERSION) !== CACHE_VERSION) {
@@ -217,7 +217,7 @@ function parseInventoryFile(workbook) {
       const obj = {};
       headers.forEach((h, i) => {
         let v = r[i] ?? null;
-        if (v !== null && typeof v === 'number' && DATE_COLS_INV.has(h)) {
+        if (v !== null && typeof v === 'number' && h && DATE_COLS_INV.has(h)) {
           const d = XLSX.SSF.parse_date_code(v);
           if (d) v = new Date(d.y, d.m - 1, d.d).toISOString().split('T')[0];
         }
@@ -226,7 +226,10 @@ function parseInventoryFile(workbook) {
       return obj;
     });
 
-  // Deduplicate by item+lot+subinventory, prefer rows with non-null Quantity and Expiration Date
+  // If the file has transaction rows (multiple rows per lot), deduplicate
+  const hasTransactions = headers.includes('Transaction Quantity') || headers.includes('Calendar Month');
+  if (!hasTransactions) return rows;
+
   const lotMap = {};
   rows.forEach(r => {
     const key = (r['Item'] || '') + '||' + (r['Lot'] || '') + '||' + (r['Subinventory'] || '');
