@@ -251,6 +251,7 @@ function Dashboard() {
               { id: 'inv-comp-exp', label: '🧪 Components Expiry' },
               { id: 'inv-fg-exp',   label: '✅ FG Expiry' },
               { id: 'inv-quar',     label: '⚠️ Quarantine' },
+              { id: 'inv-atrisk',   label: '🚨 Components at Risk' },
             ].map(s => (
               <button key={s.id}
                 onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}

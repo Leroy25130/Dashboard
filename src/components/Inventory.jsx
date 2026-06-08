@@ -546,6 +546,207 @@ function InventoryValue({ data }) {
   );
 }
 
+// ── Components at Risk ────────────────────────────────────────────────────────
+const SUBASSY_CODES_SET = new Set(['P18244','P18122','P24244','P25244']);
+
+const RISK_FLAGS = [
+  { key: 'Expired',        label: 'Expired',           color: '#ef4444' },
+  { key: 'Expiring ≤30d',  label: 'Expiring ≤ 30 days', color: '#ef4444' },
+  { key: 'Expiring ≤90d',  label: 'Expiring ≤ 90 days', color: '#f59e0b' },
+  { key: 'Quarantine',     label: 'Quarantine',         color: '#8b5cf6' },
+  { key: 'Restricted (I)', label: 'Status I',           color: '#f97316' },
+  { key: 'Restricted (E)', label: 'Status E',           color: '#f97316' },
+  { key: 'Restricted (N)', label: 'Status N',           color: '#64748b' },
+  { key: 'Below Min Stock',label: 'Below Min Stock',    color: '#3b82f6' },
+  { key: 'Lead Time Risk', label: 'Lead Time Risk',     color: '#06b6d4' },
+];
+
+function riskLevel(flags) {
+  if (flags.has('Expired') || flags.has('Expiring ≤30d') || flags.has('Below Min Stock')) return 'HIGH';
+  if (flags.has('Quarantine') || flags.has('Restricted (I)') || flags.has('Restricted (E)') || flags.has('Expiring ≤90d')) return 'MEDIUM';
+  return 'LOW';
+}
+const RISK_LEVEL_COLOR = { HIGH: '#ef4444', MEDIUM: '#f59e0b', LOW: '#10b981' };
+
+function ComponentsAtRisk({ data }) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const allSubs  = useMemo(() => [...new Set(data.map(r => r['Subinventory']).filter(Boolean))].sort(), [data]);
+  const [selSubs,       setSelSubs]       = useState(new Set());
+  const [activeFlag,    setActiveFlag]    = useState(null);
+  const [activeLevel,   setActiveLevel]   = useState(null);
+
+  // Aggregate risk per item
+  const atRiskItems = useMemo(() => {
+    const compRows = data.filter(r => !FG_CODES.has(r['Item']) && !SUBASSY_CODES_SET.has(r['Item']));
+    const map = {};
+    compRows.forEach(r => {
+      const k = r['Item'];
+      if (!map[k]) map[k] = {
+        item: k, desc: r['Item Description'] || '', qty: 0, lots: 0,
+        flags: new Set(), nearestExp: null, subinventories: new Set(),
+        minQty: null, leadTime: null,
+      };
+      const entry = map[k];
+      entry.qty  += Number(r['Quantity']) || 0;
+      entry.lots += 1;
+      entry.subinventories.add(r['Subinventory']);
+
+      // Expiry flags (only on lots with qty > 0)
+      if (r['Expiration Date'] && (r['Quantity'] || 0) > 0) {
+        const days = Math.floor((new Date(r['Expiration Date']) - today) / 86400000);
+        if (days < 0)        entry.flags.add('Expired');
+        else if (days <= 30) entry.flags.add('Expiring ≤30d');
+        else if (days <= 90) entry.flags.add('Expiring ≤90d');
+        if (!entry.nearestExp || r['Expiration Date'] < entry.nearestExp) entry.nearestExp = r['Expiration Date'];
+      }
+
+      // Status flags
+      const s = r['Material Status'];
+      if (s === 'Quarantine')              entry.flags.add('Quarantine');
+      if (s === 'I')                       entry.flags.add('Restricted (I)');
+      if (s === 'E')                       entry.flags.add('Restricted (E)');
+      if (s === 'N')                       entry.flags.add('Restricted (N)');
+
+      // Min stock / lead time (populate when data available)
+      if (r['Minimum Quantity'] != null && r['Minimum Quantity'] > 0) {
+        entry.minQty = r['Minimum Quantity'];
+        if (entry.qty < r['Minimum Quantity']) entry.flags.add('Below Min Stock');
+      }
+      const lt = r['Variable Lead Time'] || r['Processing Lead Time'] || r['Fixed Lead Time'];
+      if (lt != null) entry.leadTime = lt;
+    });
+
+    return Object.values(map)
+      .filter(e => e.flags.size > 0)
+      .map(e => ({ ...e, level: riskLevel(e.flags), subinventories: [...e.subinventories].join(', '), flags: e.flags }))
+      .sort((a, b) => {
+        const order = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+        return order[a.level] - order[b.level] || a.nearestExp?.localeCompare(b.nearestExp || '') || 0;
+      });
+  }, [data, today]);
+
+  const flagCounts = useMemo(() => RISK_FLAGS.map(f => ({
+    ...f, count: atRiskItems.filter(r => r.flags.has(f.key)).length,
+  })), [atRiskItems]);
+
+  const filtered = useMemo(() => atRiskItems.filter(r => {
+    if (selSubs.size   > 0 && ![...r.subinventories.split(', ')].some(s => selSubs.has(s))) return false;
+    if (activeFlag  && !r.flags.has(activeFlag))  return false;
+    if (activeLevel && r.level !== activeLevel)    return false;
+    return true;
+  }), [atRiskItems, selSubs, activeFlag, activeLevel]);
+
+  const highCount   = atRiskItems.filter(r => r.level === 'HIGH').length;
+  const mediumCount = atRiskItems.filter(r => r.level === 'MEDIUM').length;
+
+  const chartData = flagCounts.filter(f => f.count > 0);
+
+  return (
+    <div id="inv-atrisk">
+      <SectionHeader title="Components at Risk" icon="🚨" />
+
+      {/* Level pills */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+        <Pill label="Total at Risk"  value={atRiskItems.length} color="#e2e8f0" />
+        <Pill label="HIGH risk"      value={highCount}          color="#ef4444"
+          active={activeLevel === 'HIGH'}   onClick={() => setActiveLevel(p => p === 'HIGH'   ? null : 'HIGH')} />
+        <Pill label="MEDIUM risk"    value={mediumCount}        color="#f59e0b"
+          active={activeLevel === 'MEDIUM'} onClick={() => setActiveLevel(p => p === 'MEDIUM' ? null : 'MEDIUM')} />
+      </div>
+
+      {/* Risk flag bar chart */}
+      <div style={{ background: '#1e293b', borderRadius: 10, padding: 20, marginBottom: 20 }}>
+        <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 12 }}>Items at risk by flag (click bar to filter)</div>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 40, left: 0 }}
+            onClick={e => e?.activePayload && setActiveFlag(p => p === e.activePayload[0].payload.key ? null : e.activePayload[0].payload.key)}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
+            <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} allowDecimals={false} />
+            <Tooltip contentStyle={TOOLTIP} cursor={{ fill: '#334155' }} formatter={v => [v, 'Items']} />
+            <Bar dataKey="count" radius={[4,4,0,0]}>
+              {chartData.map((entry, i) => (
+                <Cell key={i} fill={activeFlag === entry.key ? entry.color : entry.color + '99'} />
+              ))}
+              <LabelList dataKey="count" position="top" style={{ fill: '#94a3b8', fontSize: 11 }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Pending data notice */}
+      {atRiskItems.every(r => !r.flags.has('Below Min Stock') && !r.flags.has('Lead Time Risk')) && (
+        <div style={{ background: '#1e293b', borderRadius: 8, padding: '10px 16px', marginBottom: 16, borderLeft: '3px solid #334155', color: '#64748b', fontSize: 13 }}>
+          ℹ️ <strong style={{ color: '#94a3b8' }}>Below Min Stock</strong> and <strong style={{ color: '#94a3b8' }}>Lead Time Risk</strong> flags will activate once a file with min/max quantities and lead times is uploaded.
+        </div>
+      )}
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+        <MultiSelect options={allSubs} selected={selSubs} onChange={setSelSubs} label="Subinventory" minWidth={180} />
+        {(selSubs.size > 0 || activeFlag || activeLevel) && (
+          <button onClick={() => { setSelSubs(new Set()); setActiveFlag(null); setActiveLevel(null); }} style={clearBtn}>Clear filters</button>
+        )}
+      </div>
+
+      <div style={{ background: '#1e293b', borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', color: '#94a3b8', fontSize: 13, borderBottom: '1px solid #334155' }}>
+          {filtered.length} at-risk component{filtered.length !== 1 ? 's' : ''}
+          {activeFlag ? ` — ${activeFlag}` : ''}
+          {activeLevel ? ` — ${activeLevel} risk` : ''}
+        </div>
+        <div style={{ overflowX: 'auto', maxHeight: 500, overflowY: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead style={{ position: 'sticky', top: 0, background: '#1e293b', zIndex: 1 }}>
+              <tr>
+                <th style={th}>Risk Level</th>
+                <th style={th}>Item</th>
+                <th style={th}>Description</th>
+                <th style={th}>Risk Flags</th>
+                <th style={{ ...th, textAlign: 'right' }}>Total Qty</th>
+                <th style={th}>Nearest Expiry</th>
+                <th style={th}>Subinventory</th>
+                <th style={th}>Min Stock</th>
+                <th style={th}>Lead Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : '#162032' }}>
+                  <td style={td}>
+                    <span style={{ background: RISK_LEVEL_COLOR[r.level] + '22', color: RISK_LEVEL_COLOR[r.level], borderRadius: 4, padding: '2px 8px', fontSize: 12, fontWeight: 700 }}>
+                      {r.level}
+                    </span>
+                  </td>
+                  <td style={td}>{r.item}</td>
+                  <td style={{ ...td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.desc}</td>
+                  <td style={td}>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {[...r.flags].map(f => {
+                        const meta = RISK_FLAGS.find(rf => rf.key === f);
+                        return (
+                          <span key={f} style={{ background: (meta?.color || '#64748b') + '22', color: meta?.color || '#64748b', borderRadius: 4, padding: '1px 7px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {f}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{r.qty.toLocaleString()}</td>
+                  <td style={{ ...td, color: r.nearestExp ? expiryColor(daysUntil(r.nearestExp)) : '#64748b', fontWeight: 600 }}>{r.nearestExp ?? '—'}</td>
+                  <td style={td}>{r.subinventories}</td>
+                  <td style={{ ...td, color: '#64748b' }}>{r.minQty != null ? r.minQty.toLocaleString() : '—'}</td>
+                  <td style={{ ...td, color: '#64748b' }}>{r.leadTime != null ? `${r.leadTime}d` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function Inventory({ data }) {
   if (!data || data.length === 0) {
@@ -572,6 +773,9 @@ export default function Inventory({ data }) {
       </div>
       <div style={{ marginTop: 32 }}>
         <QuarantineSection data={data} />
+      </div>
+      <div style={{ marginTop: 32 }}>
+        <ComponentsAtRisk data={data} />
       </div>
       <div style={{ height: 60 }} />
     </div>
