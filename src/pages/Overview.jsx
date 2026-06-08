@@ -106,8 +106,8 @@ export default function Overview() {
     const codes  = Object.keys(aopMap);
     return MONTHS_ABS.map(m => {
       let aop = 0, lt = 0, act = 0;
-      codes.forEach(c => { aop += aopMap[c]?.[m] ?? 0; lt += ltMap[c]?.[m] ?? 0; act += actMap[c]?.[m] ?? 0; });
-      return { month: m.replace(' 2026',''), AOP: aop, 'Latest Est.': lt, Actual: act };
+      codes.forEach(c => { aop += aopMap[c]?.[m] ?? 0; act += actMap[c]?.[m] ?? 0; });
+      return { month: m.replace(' 2026',''), AOP: aop, Actual: act };
     });
   }, [absorptionData]);
 
@@ -270,9 +270,8 @@ export default function Overview() {
               <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
               <Tooltip {...ttStyle} formatter={(v, n) => [Number(v).toLocaleString(), n]} />
               <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-              <Bar dataKey="AOP"         fill="#3b82f6" radius={[2,2,0,0]} />
-              <Bar dataKey="Latest Est." fill="#8b5cf6" radius={[2,2,0,0]} />
-              <Bar dataKey="Actual"      fill="#10b981" radius={[2,2,0,0]} />
+              <Bar dataKey="AOP"    fill="#3b82f6" radius={[2,2,0,0]} />
+              <Bar dataKey="Actual" fill="#10b981" radius={[2,2,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </Card>
