@@ -5,6 +5,7 @@ import defaultAbsorption from '../data/absorption_data.json';
 import defaultCycleCount from '../data/cycle_count_data.json';
 import defaultDistribution from '../data/distribution_data.json';
 import defaultPO from '../data/po_data.json';
+import defaultInventory from '../data/inventory_data.json';
 
 const DataContext = createContext(null);
 
@@ -13,12 +14,13 @@ const LS_ABS     = 'caldera_absorption_data';
 const LS_CC      = 'caldera_cycle_count_data';
 const LS_DIST    = 'caldera_distribution_data';
 const LS_PO      = 'caldera_po_data';
+const LS_INV     = 'caldera_inventory_data';
 const LS_VERSION = 'caldera_data_version';
-const CACHE_VERSION = '2';  // bump this whenever default data changes
+const CACHE_VERSION = '3';  // bump this whenever default data changes
 
 // Clear stale localStorage if version doesn't match
 if (localStorage.getItem(LS_VERSION) !== CACHE_VERSION) {
-  [LS_WO, LS_ABS, LS_CC, LS_DIST, LS_PO, 'caldera_last_updated'].forEach(k => localStorage.removeItem(k));
+  [LS_WO, LS_ABS, LS_CC, LS_DIST, LS_PO, LS_INV, 'caldera_last_updated'].forEach(k => localStorage.removeItem(k));
   localStorage.setItem(LS_VERSION, CACHE_VERSION);
 }
 
@@ -195,6 +197,48 @@ function parsePOFile(workbook) {
   return rows;
 }
 
+// ── Inventory file parser ─────────────────────────────────────────────────────
+const DATE_COLS_INV = new Set(['Origination Date','Expiration Date','Transaction Date','Last Updated Date']);
+
+function parseInventoryFile(workbook) {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+  let headerIdx = raw.findIndex(r =>
+    r.some(v => String(v ?? '').includes('Subinventory')) &&
+    r.some(v => String(v ?? '').includes('Expiration Date'))
+  );
+  if (headerIdx === -1) throw new Error('Could not find header row in Inventory file');
+
+  const headers = raw[headerIdx];
+  const rows = raw.slice(headerIdx + 1)
+    .filter(r => r.some(v => v !== null))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, i) => {
+        let v = r[i] ?? null;
+        if (v !== null && typeof v === 'number' && DATE_COLS_INV.has(h)) {
+          const d = XLSX.SSF.parse_date_code(v);
+          if (d) v = new Date(d.y, d.m - 1, d.d).toISOString().split('T')[0];
+        }
+        obj[h] = v;
+      });
+      return obj;
+    });
+
+  // Deduplicate by item+lot+subinventory, prefer rows with non-null Quantity and Expiration Date
+  const lotMap = {};
+  rows.forEach(r => {
+    const key = (r['Item'] || '') + '||' + (r['Lot'] || '') + '||' + (r['Subinventory'] || '');
+    const existing = lotMap[key];
+    if (!existing) { lotMap[key] = r; return; }
+    const betterQty = r['Quantity'] != null && existing['Quantity'] == null;
+    const betterExp = r['Expiration Date'] && !existing['Expiration Date'];
+    if (betterQty || betterExp) lotMap[key] = r;
+  });
+  return Object.values(lotMap);
+}
+
 // ── Detect file type and parse ────────────────────────────────────────────────
 export function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
@@ -206,7 +250,9 @@ export function parseExcelFile(file) {
         const firstSheet = wb.Sheets[wb.SheetNames[0]];
         const firstCell  = String(XLSX.utils.sheet_to_json(firstSheet, { header: 1 })[0]?.[0] ?? '').toLowerCase();
 
-        if (firstCell.includes('work order') || firstCell.includes('caldera work order')) {
+        if (firstCell.includes('inventory management report')) {
+          resolve({ type: 'inventory', data: parseInventoryFile(wb) });
+        } else if (firstCell.includes('work order') || firstCell.includes('caldera work order')) {
           resolve({ type: 'wo', data: parseWOFile(wb) });
         } else if (sheetNames.includes('aop') || sheetNames.includes('dem') || firstCell.includes('tvt budget')) {
           resolve({ type: 'absorption', data: parseAbsorptionFile(wb) });
@@ -234,7 +280,15 @@ export function parseExcelFile(file) {
             if (hasPOHeaders) {
               resolve({ type: 'po', data: parsePOFile(wb) });
             } else {
-              reject(new Error('File not recognised. Expected a Work Order Detail Report, AOP/ACT volume file, Cycle Count Report, Distribution Report, or Purchase Order Report.'));
+              const hasInvHeaders = rows2.slice(0, 10).some(r =>
+                r.some(v => String(v ?? '').includes('Subinventory')) &&
+                r.some(v => String(v ?? '').includes('Expiration Date'))
+              );
+              if (hasInvHeaders) {
+                resolve({ type: 'inventory', data: parseInventoryFile(wb) });
+              } else {
+                reject(new Error('File not recognised. Expected a Work Order Detail Report, AOP/ACT volume file, Cycle Count Report, Distribution Report, Purchase Order Report, or Inventory Management Report.'));
+              }
             }
           }
         }
@@ -254,6 +308,7 @@ export function DataProvider({ children }) {
   const [cycleCountData,   setCycleCountData]   = useState(() => loadLS(LS_CC,   defaultCycleCount));
   const [distributionData, setDistributionData] = useState(() => loadLS(LS_DIST, defaultDistribution));
   const [poData,           setPOData]           = useState(() => loadLS(LS_PO,   defaultPO));
+  const [inventoryData,    setInventoryData]    = useState(() => loadLS(LS_INV,  defaultInventory));
   const [lastUpdated,    setLastUpdated]    = useState(() => {
     try { return JSON.parse(localStorage.getItem('caldera_last_updated') || '{}'); } catch { return {}; }
   });
@@ -298,8 +353,16 @@ export function DataProvider({ children }) {
     localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
   };
 
+  const updateInventory = (data, filename) => {
+    setInventoryData(data);
+    localStorage.setItem(LS_INV, JSON.stringify(data));
+    const ts = { ...lastUpdated, inventory: { filename, at: new Date().toISOString() } };
+    setLastUpdated(ts);
+    localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
+  };
+
   return (
-    <DataContext.Provider value={{ woData, absorptionData, cycleCountData, distributionData, poData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, lastUpdated }}>
+    <DataContext.Provider value={{ woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, lastUpdated }}>
       {children}
     </DataContext.Provider>
   );

@@ -7,6 +7,7 @@ const FILE_TYPES = {
   cyclecount:   { label: 'Cycle Count Report',        color: '#f59e0b', icon: '🔄' },
   distribution: { label: 'Distribution Report',      color: '#3b82f6', icon: '🚚' },
   po:           { label: 'Purchase Order Report',    color: '#f59e0b', icon: '🛒' },
+  inventory:    { label: 'Inventory Management Report', color: '#06b6d4', icon: '🗃' },
 };
 
 export default function UploadPanel({ onUpdate, lastUpdated, onClose }) {
