@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, LabelList,
 } from 'recharts';
 import SectionHeader from './SectionHeader';
 import MultiSelect from './MultiSelect';
-import valueData from '../data/inventory_value_data.json';
+import stdCost from '../data/std_cost_data.json';
 
 const FG_CODES = new Set([
   '810051','810061','810081','830041',
@@ -439,12 +439,7 @@ function QuarantineSection({ data }) {
 }
 
 // ── Inventory Value ───────────────────────────────────────────────────────────
-const VALUE_SERIES = [
-  { key: 'total',   label: 'Total',       color: '#e2e8f0' },
-  { key: 'fg',      label: 'Finished Goods', color: '#3b82f6' },
-  { key: 'subassy', label: 'Sub-Assembly',   color: '#10b981' },
-  { key: 'comp',    label: 'Components',     color: '#f59e0b' },
-];
+const SUBASSY_CODES = new Set(['P18244','P18122','P24244','P25244']);
 
 function fmtVal(v) {
   if (v >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M';
@@ -452,24 +447,38 @@ function fmtVal(v) {
   return v.toLocaleString();
 }
 
-function InventoryValue() {
-  const [visible, setVisible] = useState(new Set(VALUE_SERIES.map(s => s.key)));
+const BAR_COLORS = {
+  Total: '#e2e8f0',
+  'Finished Goods': '#3b82f6',
+  'Sub-Assembly': '#10b981',
+  Components: '#f59e0b',
+};
 
-  const toggle = (key) => setVisible(prev => {
-    if (prev.size === 1 && prev.has(key)) return prev;
-    const next = new Set(prev);
-    next.has(key) ? next.delete(key) : next.add(key);
-    return next;
-  });
+function InventoryValue({ data }) {
+  const values = useMemo(() => {
+    let total = 0, fg = 0, subassy = 0, comp = 0;
+    data.filter(r => r['Quantity'] > 0).forEach(r => {
+      const cost = stdCost[r['Item']]?.cost || 0;
+      const val  = (r['Quantity'] || 0) * cost;
+      total += val;
+      if (FG_CODES.has(r['Item']))      fg      += val;
+      else if (SUBASSY_CODES.has(r['Item'])) subassy += val;
+      else                              comp    += val;
+    });
+    return {
+      total:   Math.round(total),
+      fg:      Math.round(fg),
+      subassy: Math.round(subassy),
+      comp:    Math.round(comp),
+    };
+  }, [data]);
 
-  // Format month labels: "2025 / 06" -> "Jun 2025"
-  const chartData = useMemo(() => valueData.map(r => {
-    const [y, m] = r.month.split(' / ');
-    const months = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return { ...r, label: `${months[parseInt(m, 10)]} ${y}` };
-  }), []);
-
-  const latest = chartData[chartData.length - 1];
+  const chartData = [
+    { category: 'Total',          value: values.total   },
+    { category: 'Finished Goods', value: values.fg      },
+    { category: 'Sub-Assembly',   value: values.subassy },
+    { category: 'Components',     value: values.comp    },
+  ];
 
   return (
     <div id="inv-value">
@@ -477,75 +486,56 @@ function InventoryValue() {
 
       {/* Summary pills */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
-        {VALUE_SERIES.map(s => (
-          <Pill key={s.key} label={`${s.label} (latest)`}
-            value={latest ? 'CHF ' + fmtVal(latest[s.key]) : '—'}
-            color={s.color} />
+        {chartData.map(r => (
+          <Pill key={r.category} label={r.category}
+            value={'CHF ' + fmtVal(r.value)}
+            color={BAR_COLORS[r.category]} />
         ))}
       </div>
 
-      {/* Series toggles */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-        {VALUE_SERIES.map(s => {
-          const active = visible.has(s.key);
-          return (
-            <button key={s.key} onClick={() => toggle(s.key)} style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: active ? s.color + '22' : '#0f172a',
-              color: active ? s.color : '#475569',
-              border: `1.5px solid ${active ? s.color : '#334155'}`,
-              borderRadius: 6, padding: '5px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-            }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: active ? s.color : '#334155', display: 'inline-block' }} />
-              {s.label}
-            </button>
-          );
-        })}
-      </div>
-
       <div style={{ background: '#1e293b', borderRadius: 10, padding: 20, marginBottom: 20 }}>
-        <ResponsiveContainer width="100%" height={340}>
-          <LineChart data={chartData} margin={{ top: 10, right: 30, bottom: 5, left: 10 }}>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={chartData} margin={{ top: 20, right: 30, bottom: 5, left: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-            <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+            <XAxis dataKey="category" tick={{ fill: '#94a3b8', fontSize: 13 }} />
             <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={fmtVal}
               label={{ value: 'CHF', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 11 }} />
             <Tooltip
               contentStyle={TOOLTIP}
               labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
-              formatter={(v, name) => ['CHF ' + v.toLocaleString(), name]}
+              formatter={v => ['CHF ' + v.toLocaleString(), 'Value']}
             />
-            <Legend wrapperStyle={{ color: '#94a3b8', fontSize: 12 }} />
-            {VALUE_SERIES.filter(s => visible.has(s.key)).map(s => (
-              <Line key={s.key} type="monotone" dataKey={s.key} name={s.label}
-                stroke={s.color} strokeWidth={2} dot={{ r: 4, fill: s.color }}
-                activeDot={{ r: 6 }} />
-            ))}
-          </LineChart>
+            <Bar dataKey="value" radius={[4,4,0,0]}>
+              {chartData.map((entry, i) => (
+                <Cell key={i} fill={BAR_COLORS[entry.category]} />
+              ))}
+              <LabelList dataKey="value" position="top"
+                formatter={v => 'CHF ' + fmtVal(v)}
+                style={{ fill: '#e2e8f0', fontSize: 12, fontWeight: 600 }} />
+            </Bar>
+          </BarChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Data table */}
+      {/* Summary table */}
       <div style={{ background: '#1e293b', borderRadius: 10, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#0f172a' }}>
-                <th style={th}>Month</th>
-                <th style={{ ...th, textAlign: 'right' }}>Total (CHF)</th>
-                <th style={{ ...th, textAlign: 'right', color: '#3b82f6' }}>Finished Goods</th>
-                <th style={{ ...th, textAlign: 'right', color: '#10b981' }}>Sub-Assembly</th>
-                <th style={{ ...th, textAlign: 'right', color: '#f59e0b' }}>Components</th>
+                <th style={th}>Category</th>
+                <th style={{ ...th, textAlign: 'right' }}>Value (CHF)</th>
+                <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
               </tr>
             </thead>
             <tbody>
-              {[...chartData].reverse().map((r, i) => (
+              {chartData.map((r, i) => (
                 <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : '#162032' }}>
-                  <td style={td}>{r.label}</td>
-                  <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{'CHF ' + r.total.toLocaleString()}</td>
-                  <td style={{ ...td, textAlign: 'right', color: '#3b82f6' }}>{'CHF ' + r.fg.toLocaleString()}</td>
-                  <td style={{ ...td, textAlign: 'right', color: '#10b981' }}>{'CHF ' + r.subassy.toLocaleString()}</td>
-                  <td style={{ ...td, textAlign: 'right', color: '#f59e0b' }}>{'CHF ' + r.comp.toLocaleString()}</td>
+                  <td style={{ ...td, color: BAR_COLORS[r.category], fontWeight: 600 }}>{r.category}</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{'CHF ' + r.value.toLocaleString()}</td>
+                  <td style={{ ...td, textAlign: 'right', color: '#94a3b8' }}>
+                    {r.category === 'Total' ? '100%' : values.total > 0 ? ((r.value / values.total) * 100).toFixed(1) + '%' : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -572,7 +562,7 @@ export default function Inventory({ data }) {
         <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>{data.length} lot lines</div>
       </div>
 
-      <InventoryValue />
+      <InventoryValue data={data} />
       <div style={{ marginTop: 32 }}><StockOverview data={data} /></div>
       <div style={{ marginTop: 32 }}>
         <ExpirySection id="inv-comp-exp" title="Components Expiry / Shelf Life" icon="🧪" rows={compRows} />
