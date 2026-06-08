@@ -246,6 +246,7 @@ function Dashboard() {
               Inventory
             </div>
             {[
+              { id: 'inv-value',    label: '💰 Inventory Value' },
               { id: 'inv-stock',    label: '📦 Stock Overview' },
               { id: 'inv-comp-exp', label: '🧪 Components Expiry' },
               { id: 'inv-fg-exp',   label: '✅ FG Expiry' },
