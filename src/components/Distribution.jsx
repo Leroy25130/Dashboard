@@ -351,6 +351,11 @@ export default function Distribution({ data }) {
       {/* ── Product Mix / Qty Shipped ─────────────────────────────────────── */}
       <div id="dist-mix"><SectionHeader title="Product Mix / Quantity Shipped" icon="🏷️" /></div>
 
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <Pill label="Total Shipped Qty" value={mixTotal.toLocaleString()} color="#8b5cf6" />
+        <Pill label="Items" value={mixByItem.length} color="#06b6d4" />
+      </div>
+
       <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <MultiSelect options={allMonths} selected={mixMonths} onChange={setMixMonths} label="Month (Shipped):" allLabel="All months" minWidth={180} />
         <MultiSelect options={allItems}  selected={mixItems}  onChange={setMixItems}  label="Item:"           allLabel="All items"   minWidth={180} />
