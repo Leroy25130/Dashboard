@@ -8,11 +8,8 @@ import SectionHeader from './SectionHeader';
 import MultiSelect from './MultiSelect';
 import demandData from '../data/demand_data.json';
 
-const DEMAND_MONTHS = [
-  'Jul 2025','Aug 2025','Sep 2025','Oct 2025','Nov 2025','Dec 2025',
-  'Jan 2026','Feb 2026','Mar 2026','Apr 2026','May 2026','Jun 2026',
-  'Jul 2026','Aug 2026','Sep 2026','Oct 2026','Nov 2026','Dec 2026',
-];
+const DEMAND_MONTHS = ['Jan 2026','Feb 2026','Mar 2026','Apr 2026','May 2026','Jun 2026',
+                       'Jul 2026','Aug 2026','Sep 2026','Oct 2026','Nov 2026','Dec 2026'];
 
 function toISO(d) { return d?.replace(/\//g, '-'); }
 
@@ -189,14 +186,15 @@ export default function Distribution({ data }) {
   // Demand items list (from static demand data)
   const demandItems = useMemo(() => demandData.map(d => d.item), []);
 
-  // Shipment by item × month (Jul 2025 onwards)
+  // Shipment by item × month (2026 only)
   const shipByItemMonth = useMemo(() => {
     const map = {};
     data.forEach(r => {
       const item = r['Item']; if (!item) return;
       const date = r['Shipped Date']; if (!date) return;
+      const yr = date.split('/')[0];
+      if (yr !== '2026') return;
       const m = monthLabel(toISO(date));
-      if (!DEMAND_MONTHS.includes(m)) return;
       if (!map[item]) map[item] = {};
       map[item][m] = (map[item][m] || 0) + (Number(r['Shipped Quantity']) || 0);
     });
