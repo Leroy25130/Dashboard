@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   ComposedChart, BarChart, Bar, Line, LabelList, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer,
+  Tooltip, Legend, ResponsiveContainer, Cell,
 } from 'recharts';
 import { monthLabel, sortedMonths } from '../utils/dataHelpers';
 import SectionHeader from './SectionHeader';
@@ -28,7 +28,10 @@ const td = { padding: '7px 12px', color: '#e2e8f0', borderBottom: '1px solid #1e
 const clearBtnStyle = { background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 13 };
 const TOOLTIP = { background: '#0f172a', border: '1px solid #334155', borderRadius: 8 };
 
-export default function Distribution({ data }) {
+const TRANSFER_ORDER_CUSTOMER = 'Caldera Medical WLV';
+const CUSTOMER_COLORS = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#06b6d4','#ec4899','#84cc16','#f97316','#14b8a6','#a78bfa','#fb923c','#34d399','#60a5fa','#fbbf24'];
+
+export default function Distribution({ data, salesData = [] }) {
   // ── Shared option lists ───────────────────────────────────────────────────
   const allCustomers = useMemo(() =>
     [...new Set(data.map(r => r['Customer Name']).filter(Boolean))].sort(), [data]);
@@ -242,6 +245,76 @@ export default function Distribution({ data }) {
   const dvsTotalCoverage = dvsTotalDemand > 0 ? ((dvsTotalShipped / dvsTotalDemand) * 100).toFixed(1) : 'N/A';
   const dvsCoverageColor = dvsTotalCoverage === 'N/A' ? '#64748b' : Number(dvsTotalCoverage) >= 95 ? '#10b981' : Number(dvsTotalCoverage) >= 80 ? '#f59e0b' : '#ef4444';
   const dvsHasFilter = dvsMonths.size > 0 || dvsItems.size > 0;
+
+  // ── Customer by Sales ─────────────────────────────────────────────────────
+  // Filter to 2026 only; transfer orders → TRANSFER_ORDER_CUSTOMER
+  const sales2026 = useMemo(() =>
+    salesData
+      .filter(r => {
+        const date = r['Shipped Date'];
+        if (!date) return false;
+        const yr = String(date).split('/')[0];
+        return yr === '2026';
+      })
+      .map(r => ({
+        ...r,
+        customerResolved: (r['Transfer Order Number'] && !r['Sales Order Number'])
+          ? TRANSFER_ORDER_CUSTOMER
+          : (r['Customer Name'] || 'Unknown'),
+      })),
+    [salesData]);
+
+  const [custMonths, setCustMonths] = useState(new Set());
+  const [custItems,  setCustItems]  = useState(new Set());
+
+  const custAllMonths = useMemo(() => {
+    const ms = sales2026.map(r => monthLabel(toISO(r['Shipped Date']))).filter(m => m && m !== 'Unknown');
+    return sortedMonths([...new Set(ms)]);
+  }, [sales2026]);
+
+  const custAllItems = useMemo(() =>
+    [...new Set(sales2026.map(r => r['Item']).filter(Boolean))].sort(),
+    [sales2026]);
+
+  const custFiltered = useMemo(() => sales2026.filter(r => {
+    if (custMonths.size > 0 && !custMonths.has(monthLabel(toISO(r['Shipped Date'])))) return false;
+    if (custItems.size > 0 && !custItems.has(r['Item'])) return false;
+    return true;
+  }), [sales2026, custMonths, custItems]);
+
+  // Ranking by shipped qty
+  const custRanking = useMemo(() => {
+    const map = {};
+    custFiltered.forEach(r => {
+      const c = r.customerResolved;
+      if (!map[c]) map[c] = { customer: c, qty: 0, lines: 0, items: new Set() };
+      map[c].qty   += Number(r['Shipped Quantity']) || 0;
+      map[c].lines += 1;
+      if (r['Item']) map[c].items.add(r['Item']);
+    });
+    return Object.values(map)
+      .map(c => ({ ...c, items: c.items.size }))
+      .sort((a, b) => b.qty - a.qty);
+  }, [custFiltered]);
+
+  // Monthly trend by customer (top 8)
+  const custTopNames = useMemo(() => custRanking.slice(0, 8).map(c => c.customer), [custRanking]);
+
+  const custChartData = useMemo(() => {
+    const map = {};
+    custFiltered.forEach(r => {
+      const c = r.customerResolved;
+      if (!custTopNames.includes(c)) return;
+      const m = monthLabel(toISO(r['Shipped Date']));
+      if (m === 'Unknown') return;
+      if (!map[m]) { map[m] = { month: m }; custTopNames.forEach(n => { map[m][n] = 0; }); }
+      map[m][c] = (map[m][c] || 0) + (Number(r['Shipped Quantity']) || 0);
+    });
+    return sortedMonths(Object.keys(map)).map(m => map[m]);
+  }, [custFiltered, custTopNames]);
+
+  const custTotal = custRanking.reduce((s, r) => s + r.qty, 0);
+  const custHasFilter = custMonths.size > 0 || custItems.size > 0;
 
   return (
     <div>
@@ -462,6 +535,96 @@ export default function Distribution({ data }) {
                 <td style={{ ...td, color: r.coverage === null ? '#64748b' : r.coverage >= 95 ? '#10b981' : r.coverage >= 80 ? '#f59e0b' : '#ef4444', fontWeight: 600 }}>
                   {r.coverage !== null ? `${r.coverage}%` : '—'}
                 </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Customer by Sales ─────────────────────────────────────────────── */}
+      <div id="dist-customers" style={{ marginTop: 32 }}>
+        <SectionHeader title="Customer by Sales" icon="👥" />
+      </div>
+
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        <Pill label="Total Shipped Qty"  value={custTotal.toLocaleString()} color="#3b82f6" />
+        <Pill label="Customers"          value={custRanking.length}         color="#8b5cf6" />
+        <Pill label="2026 Data Only"     value={sales2026.length + ' lines'} color="#06b6d4" />
+      </div>
+
+      <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <MultiSelect options={custAllMonths} selected={custMonths} onChange={setCustMonths} label="Month (Shipped):" allLabel="All months" minWidth={180} />
+        <MultiSelect options={custAllItems}  selected={custItems}  onChange={setCustItems}  label="Item:"           allLabel="All items"   minWidth={180} />
+        {custHasFilter && (
+          <button onClick={() => { setCustMonths(new Set()); setCustItems(new Set()); }} style={clearBtnStyle}>Clear filters</button>
+        )}
+      </div>
+
+      {/* Horizontal bar chart — top 15 customers ranked */}
+      <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>Ranked by shipped quantity · 2026</div>
+        <ResponsiveContainer width="100%" height={Math.max(300, custRanking.length * 36)}>
+          <BarChart
+            layout="vertical"
+            data={custRanking.slice(0, 15)}
+            margin={{ top: 4, right: 80, bottom: 4, left: 160 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+            <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+            <YAxis type="category" dataKey="customer" tick={{ fill: '#e2e8f0', fontSize: 12 }} width={155} />
+            <Tooltip
+              contentStyle={TOOLTIP}
+              labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
+              formatter={v => [v.toLocaleString(), 'Shipped Qty']}
+            />
+            <Bar dataKey="qty" name="Shipped Qty" radius={[0,3,3,0]}>
+              <LabelList dataKey="qty" position="right"
+                formatter={v => v.toLocaleString()}
+                style={{ fill: '#94a3b8', fontSize: 11 }} />
+              {custRanking.slice(0, 15).map((_, i) => (
+                <Cell key={i} fill={CUSTOMER_COLORS[i % CUSTOMER_COLORS.length]} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Monthly trend for top 8 customers */}
+      {custChartData.length > 0 && (
+        <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+          <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>Monthly shipment trend — top 8 customers</div>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={custChartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+              <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
+              <Tooltip contentStyle={TOOLTIP} labelStyle={{ color: '#e2e8f0', fontWeight: 600 }} formatter={v => [v.toLocaleString(), '']} />
+              <Legend wrapperStyle={{ color: '#94a3b8', fontSize: 11 }} />
+              {custTopNames.map((name, idx) => (
+                <Bar key={name} dataKey={name} stackId="a" fill={CUSTOMER_COLORS[idx % CUSTOMER_COLORS.length]}
+                  radius={idx === custTopNames.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Ranking table */}
+      <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>{custRanking.length} customers</div>
+      <div style={{ overflowX: 'auto', marginBottom: 32 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead><tr style={{ background: '#1e293b' }}>
+            {['Rank','Customer','Shipped Qty','% of Total','Lines','Items'].map(h => <th key={h} style={th}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {custRanking.map((r, i) => (
+              <tr key={i} style={{ background: i % 2 === 0 ? '#0f172a' : '#1e293b' }}>
+                <td style={{ ...td, color: '#64748b', fontWeight: 700 }}>#{i + 1}</td>
+                <td style={{ ...td, fontWeight: i === 0 ? 700 : 400 }}>{r.customer}</td>
+                <td style={{ ...td, fontWeight: 700, color: '#f1f5f9' }}>{r.qty.toLocaleString()}</td>
+                <td style={td}>{custTotal > 0 ? ((r.qty / custTotal) * 100).toFixed(1) : '0.0'}%</td>
+                <td style={td}>{r.lines.toLocaleString()}</td>
+                <td style={td}>{r.items}</td>
               </tr>
             ))}
           </tbody>

@@ -8,6 +8,7 @@ const FILE_TYPES = {
   distribution: { label: 'Distribution Report',      color: '#3b82f6', icon: '🚚' },
   po:           { label: 'Purchase Order Report',    color: '#f59e0b', icon: '🛒' },
   inventory:    { label: 'Inventory Management Report', color: '#06b6d4', icon: '🗃' },
+  sales:        { label: 'Transfer & Sales Orders',     color: '#ec4899', icon: '👥' },
 };
 
 export default function UploadPanel({ onUpdate, lastUpdated, onClose }) {

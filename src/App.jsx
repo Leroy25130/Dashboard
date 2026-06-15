@@ -35,7 +35,7 @@ const NAV_TABS = [
 ];
 
 function Dashboard() {
-  const { woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, lastUpdated } = useData();
+  const { woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, salesData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, updateSales, lastUpdated } = useData();
   const [showUpload, setShowUpload] = useState(false);
   const [activePage, setActivePage] = useState('summary');
 
@@ -59,6 +59,7 @@ function Dashboard() {
     if (type === 'distribution') updateDistribution(newData, filename);
     if (type === 'po')           updatePO(newData, filename);
     if (type === 'inventory')    updateInventory(newData, filename);
+    if (type === 'sales')        updateSales(newData, filename);
   };
 
   return (
@@ -188,10 +189,11 @@ function Dashboard() {
               Distribution
             </div>
             {[
-              { id: 'dist-otif',   label: '🎯 OTIF Performance' },
-              { id: 'dist-volume', label: '📦 Volume Shipped' },
-              { id: 'dist-mix',    label: '🏷️ Product Mix' },
-              { id: 'dist-demand', label: '📊 Demand vs Shipment' },
+              { id: 'dist-otif',      label: '🎯 OTIF Performance' },
+              { id: 'dist-volume',    label: '📦 Volume Shipped' },
+              { id: 'dist-mix',       label: '🏷️ Product Mix' },
+              { id: 'dist-demand',    label: '📊 Demand vs Shipment' },
+              { id: 'dist-customers', label: '👥 Customer by Sales' },
             ].map(s => (
               <button key={s.id}
                 onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
@@ -204,7 +206,7 @@ function Dashboard() {
           </div>
           {/* Main content */}
           <div style={{ flex: 1, padding: '28px 36px', overflowY: 'auto' }}>
-            <Distribution data={distributionData} />
+            <Distribution data={distributionData} salesData={salesData} />
           </div>
         </div>
       )}

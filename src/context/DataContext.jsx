@@ -6,6 +6,7 @@ import defaultCycleCount from '../data/cycle_count_data.json';
 import defaultDistribution from '../data/distribution_data.json';
 import defaultPO from '../data/po_data.json';
 import defaultInventory from '../data/inventory_data.json';
+import defaultSales from '../data/sales_data.json';
 
 const DataContext = createContext(null);
 
@@ -15,12 +16,13 @@ const LS_CC      = 'caldera_cycle_count_data';
 const LS_DIST    = 'caldera_distribution_data';
 const LS_PO      = 'caldera_po_data';
 const LS_INV     = 'caldera_inventory_data';
+const LS_SALES   = 'caldera_sales_data';
 const LS_VERSION = 'caldera_data_version';
-const CACHE_VERSION = '4';  // bump this whenever default data changes
+const CACHE_VERSION = '5';  // bump this whenever default data changes
 
 // Clear stale localStorage if version doesn't match
 if (localStorage.getItem(LS_VERSION) !== CACHE_VERSION) {
-  [LS_WO, LS_ABS, LS_CC, LS_DIST, LS_PO, LS_INV, 'caldera_last_updated'].forEach(k => localStorage.removeItem(k));
+  [LS_WO, LS_ABS, LS_CC, LS_DIST, LS_PO, LS_INV, LS_SALES, 'caldera_last_updated'].forEach(k => localStorage.removeItem(k));
   localStorage.setItem(LS_VERSION, CACHE_VERSION);
 }
 
@@ -242,6 +244,38 @@ function parseInventoryFile(workbook) {
   return Object.values(lotMap);
 }
 
+// ── Sales / Transfer Orders file parser ──────────────────────────────────────
+const DATE_COLS_SALES = new Set(['Scheduled Shipment Date','Shipped Date']);
+
+function parseSalesFile(workbook) {
+  const sheetName = workbook.SheetNames.find(n => /shipment/i.test(n)) || workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+  let headerIdx = raw.findIndex(r =>
+    r.some(v => String(v ?? '').includes('Shipped Quantity')) &&
+    r.some(v => String(v ?? '').includes('Customer Name'))
+  );
+  if (headerIdx === -1) throw new Error('Could not find header row in Sales/Transfer Orders file');
+
+  const headers = raw[headerIdx];
+  const rows = raw.slice(headerIdx + 1)
+    .filter(r => r.some(v => v !== null))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, i) => {
+        let v = r[i] ?? null;
+        if (v !== null && typeof v === 'number' && h && DATE_COLS_SALES.has(h)) {
+          const d = XLSX.SSF.parse_date_code(v);
+          if (d) v = `${d.y}/${String(d.m).padStart(2,'0')}/${String(d.d).padStart(2,'0')}`;
+        }
+        obj[h] = v;
+      });
+      return obj;
+    });
+  return rows;
+}
+
 // ── Detect file type and parse ────────────────────────────────────────────────
 export function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
@@ -263,34 +297,43 @@ export function parseExcelFile(file) {
           resolve({ type: 'cyclecount', data: parseCycleCountFile(wb) });
         } else if (sheetNames.includes('purchase order')) {
           resolve({ type: 'po', data: parsePOFile(wb) });
-        } else if (sheetNames.includes('shipment') || firstCell.includes('transfer and sales') || firstCell.includes('scheduled shipment') || firstCell.includes('inventory organization')) {
+        } else if (firstCell.includes('transfer and sales') || firstCell.includes('caldera transfer')) {
+          resolve({ type: 'sales', data: parseSalesFile(wb) });
+        } else if (sheetNames.includes('shipment') || firstCell.includes('scheduled shipment') || firstCell.includes('inventory organization')) {
           resolve({ type: 'distribution', data: parseDistributionFile(wb) });
         } else {
-          // Try to detect distribution by header content
+          // Try to detect by header content
           const firstSheet2 = wb.Sheets[wb.SheetNames[0]];
           const rows2 = XLSX.utils.sheet_to_json(firstSheet2, { header: 1, defval: null });
-          const hasDistHeaders = rows2.slice(0, 10).some(r =>
-            r.some(v => String(v ?? '').includes('Scheduled Shipment Date') || String(v ?? '').includes('Shipment Number'))
+          const hasSalesHeaders = rows2.slice(0, 10).some(r =>
+            r.some(v => String(v ?? '').includes('Shipped Quantity')) &&
+            r.some(v => String(v ?? '').includes('Transfer Order Number'))
           );
-          if (hasDistHeaders) {
-            resolve({ type: 'distribution', data: parseDistributionFile(wb) });
+          if (hasSalesHeaders) {
+            resolve({ type: 'sales', data: parseSalesFile(wb) });
           } else {
-            // Try to detect PO by header content
-            const hasPOHeaders = rows2.slice(0, 10).some(r =>
-              r.some(v => String(v ?? '').includes('Supplier Name')) &&
-              r.some(v => String(v ?? '').includes('Document Number'))
+            const hasDistHeaders = rows2.slice(0, 10).some(r =>
+              r.some(v => String(v ?? '').includes('Scheduled Shipment Date') || String(v ?? '').includes('Shipment Number'))
             );
-            if (hasPOHeaders) {
-              resolve({ type: 'po', data: parsePOFile(wb) });
+            if (hasDistHeaders) {
+              resolve({ type: 'distribution', data: parseDistributionFile(wb) });
             } else {
-              const hasInvHeaders = rows2.slice(0, 10).some(r =>
-                r.some(v => String(v ?? '').includes('Subinventory')) &&
-                r.some(v => String(v ?? '').includes('Expiration Date'))
+              const hasPOHeaders = rows2.slice(0, 10).some(r =>
+                r.some(v => String(v ?? '').includes('Supplier Name')) &&
+                r.some(v => String(v ?? '').includes('Document Number'))
               );
-              if (hasInvHeaders) {
-                resolve({ type: 'inventory', data: parseInventoryFile(wb) });
+              if (hasPOHeaders) {
+                resolve({ type: 'po', data: parsePOFile(wb) });
               } else {
-                reject(new Error('File not recognised. Expected a Work Order Detail Report, AOP/ACT volume file, Cycle Count Report, Distribution Report, Purchase Order Report, or Inventory Management Report.'));
+                const hasInvHeaders = rows2.slice(0, 10).some(r =>
+                  r.some(v => String(v ?? '').includes('Subinventory')) &&
+                  r.some(v => String(v ?? '').includes('Expiration Date'))
+                );
+                if (hasInvHeaders) {
+                  resolve({ type: 'inventory', data: parseInventoryFile(wb) });
+                } else {
+                  reject(new Error('File not recognised. Expected a Work Order Detail Report, AOP/ACT volume file, Cycle Count Report, Distribution Report, Purchase Order Report, Inventory Management Report, or Sales/Transfer Orders file.'));
+                }
               }
             }
           }
@@ -306,12 +349,13 @@ export function parseExcelFile(file) {
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 export function DataProvider({ children }) {
-  const [woData,           setWOData]           = useState(() => loadLS(LS_WO,   defaultWO));
-  const [absorptionData,   setAbsorptionData]   = useState(() => loadLS(LS_ABS,  defaultAbsorption));
-  const [cycleCountData,   setCycleCountData]   = useState(() => loadLS(LS_CC,   defaultCycleCount));
-  const [distributionData, setDistributionData] = useState(() => loadLS(LS_DIST, defaultDistribution));
-  const [poData,           setPOData]           = useState(() => loadLS(LS_PO,   defaultPO));
-  const [inventoryData,    setInventoryData]    = useState(() => loadLS(LS_INV,  defaultInventory));
+  const [woData,           setWOData]           = useState(() => loadLS(LS_WO,    defaultWO));
+  const [absorptionData,   setAbsorptionData]   = useState(() => loadLS(LS_ABS,   defaultAbsorption));
+  const [cycleCountData,   setCycleCountData]   = useState(() => loadLS(LS_CC,    defaultCycleCount));
+  const [distributionData, setDistributionData] = useState(() => loadLS(LS_DIST,  defaultDistribution));
+  const [poData,           setPOData]           = useState(() => loadLS(LS_PO,    defaultPO));
+  const [inventoryData,    setInventoryData]    = useState(() => loadLS(LS_INV,   defaultInventory));
+  const [salesData,        setSalesData]        = useState(() => loadLS(LS_SALES, defaultSales));
   const [lastUpdated,    setLastUpdated]    = useState(() => {
     try { return JSON.parse(localStorage.getItem('caldera_last_updated') || '{}'); } catch { return {}; }
   });
@@ -364,8 +408,16 @@ export function DataProvider({ children }) {
     localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
   };
 
+  const updateSales = (data, filename) => {
+    setSalesData(data);
+    localStorage.setItem(LS_SALES, JSON.stringify(data));
+    const ts = { ...lastUpdated, sales: { filename, at: new Date().toISOString() } };
+    setLastUpdated(ts);
+    localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
+  };
+
   return (
-    <DataContext.Provider value={{ woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, lastUpdated }}>
+    <DataContext.Provider value={{ woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, salesData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, updateSales, lastUpdated }}>
       {children}
     </DataContext.Provider>
   );
