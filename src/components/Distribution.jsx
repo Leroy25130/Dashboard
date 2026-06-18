@@ -316,6 +316,39 @@ export default function Distribution({ data, salesData = [] }) {
   const custTotal = custRanking.reduce((s, r) => s + r.qty, 0);
   const custHasFilter = custMonths.size > 0 || custItems.size > 0;
 
+  // ── Where Shipped ─────────────────────────────────────────────────────────
+  const [lotSearch, setLotSearch] = useState('');
+
+  // All unique lot numbers from sales data for autocomplete suggestions
+  const allLotNumbers = useMemo(() =>
+    [...new Set(salesData.map(r => r['Lot Number']).filter(Boolean))].sort(),
+    [salesData]);
+
+  const lotQuery = lotSearch.trim().toUpperCase();
+
+  const whereShippedRows = useMemo(() => {
+    if (!lotQuery) return [];
+    return salesData
+      .filter(r => String(r['Lot Number'] || '').toUpperCase().includes(lotQuery))
+      .map(r => ({
+        lot:        r['Lot Number'],
+        item:       r['Item'],
+        desc:       r['Description'],
+        customer:   (r['Transfer Order Number'] && !r['Sales Order Number'])
+                      ? TRANSFER_ORDER_CUSTOMER
+                      : (r['Customer Name'] || '—'),
+        orderType:  (r['Transfer Order Number'] && !r['Sales Order Number']) ? 'Transfer' : 'Sales',
+        orderNum:   r['Sales Order Number'] ?? r['Transfer Order Number'],
+        shipment:   r['Shipment Number'],
+        shippedDate:r['Shipped Date'],
+        qty:        Number(r['Shipped Quantity']) || 0,
+        uom:        r['Primary UOM'],
+      }))
+      .sort((a, b) => (a.shippedDate || '').localeCompare(b.shippedDate || ''));
+  }, [salesData, lotQuery]);
+
+  const whereShippedTotal = whereShippedRows.reduce((s, r) => s + r.qty, 0);
+
   return (
     <div>
       {/* ── OTIF ──────────────────────────────────────────────────────────── */}
@@ -630,6 +663,88 @@ export default function Distribution({ data, salesData = [] }) {
           </tbody>
         </table>
       </div>
+
+      {/* ── Where Shipped ─────────────────────────────────────────────────── */}
+      <div id="dist-where" style={{ marginTop: 32 }}>
+        <SectionHeader title="Where Shipped" icon="🔍" />
+      </div>
+
+      <div style={{ marginBottom: 16, maxWidth: 480 }}>
+        <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 8 }}>
+          Search by lot number to see where it was shipped
+        </div>
+        <div style={{ position: 'relative' }}>
+          <input
+            type="text"
+            value={lotSearch}
+            onChange={e => setLotSearch(e.target.value)}
+            placeholder="Enter or paste a lot number…"
+            list="lot-suggestions"
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              background: '#0f172a', border: '1px solid #334155', borderRadius: 8,
+              color: '#f1f5f9', padding: '10px 40px 10px 14px', fontSize: 14,
+              outline: 'none',
+            }}
+          />
+          <datalist id="lot-suggestions">
+            {allLotNumbers.slice(0, 200).map(l => <option key={l} value={l} />)}
+          </datalist>
+          {lotSearch && (
+            <button
+              onClick={() => setLotSearch('')}
+              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>
+              ×
+            </button>
+          )}
+        </div>
+      </div>
+
+      {lotQuery && (
+        <>
+          {whereShippedRows.length === 0 ? (
+            <div style={{ color: '#64748b', fontSize: 14, padding: '16px 0' }}>
+              No shipments found for lot number containing <strong style={{ color: '#e2e8f0' }}>"{lotQuery}"</strong>.
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <Pill label="Shipment Lines"   value={whereShippedRows.length}           color="#3b82f6" />
+                <Pill label="Total Qty Shipped" value={`${whereShippedTotal.toLocaleString()} ${whereShippedRows[0]?.uom || ''}`} color="#10b981" />
+                <Pill label="Customers"         value={new Set(whereShippedRows.map(r => r.customer)).size} color="#8b5cf6" />
+              </div>
+              <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>
+                {whereShippedRows.length} line{whereShippedRows.length !== 1 ? 's' : ''} matching <strong style={{ color: '#94a3b8' }}>"{lotQuery}"</strong>
+              </div>
+              <div style={{ overflowX: 'auto', marginBottom: 32 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead><tr style={{ background: '#1e293b' }}>
+                    {['Lot Number','Item','Description','Order Type','Order Number','Shipment #','Customer','Shipped Date','Qty','UOM'].map(h => (
+                      <th key={h} style={th}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {whereShippedRows.map((r, i) => (
+                      <tr key={i} style={{ background: i % 2 === 0 ? '#0f172a' : '#1e293b' }}>
+                        <td style={{ ...td, fontFamily: 'monospace', color: '#60a5fa', fontWeight: 600 }}>{r.lot}</td>
+                        <td style={td}>{r.item}</td>
+                        <td style={{ ...td, color: '#94a3b8' }}>{r.desc}</td>
+                        <td style={{ ...td, color: r.orderType === 'Transfer' ? '#f59e0b' : '#3b82f6', fontWeight: 600 }}>{r.orderType}</td>
+                        <td style={td}>{r.orderNum ?? '—'}</td>
+                        <td style={td}>{r.shipment ?? '—'}</td>
+                        <td style={{ ...td, fontWeight: 600 }}>{r.customer}</td>
+                        <td style={td}>{r.shippedDate ?? '—'}</td>
+                        <td style={{ ...td, fontWeight: 700, color: '#f1f5f9' }}>{r.qty.toLocaleString()}</td>
+                        <td style={{ ...td, color: '#94a3b8' }}>{r.uom}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

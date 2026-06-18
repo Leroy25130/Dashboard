@@ -194,6 +194,7 @@ function Dashboard() {
               { id: 'dist-mix',       label: '🏷️ Product Mix' },
               { id: 'dist-demand',    label: '📊 Demand vs Shipment' },
               { id: 'dist-customers', label: '👥 Customer by Sales' },
+              { id: 'dist-where',    label: '🔍 Where Shipped' },
             ].map(s => (
               <button key={s.id}
                 onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
