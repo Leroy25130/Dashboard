@@ -66,9 +66,7 @@ function Dashboard() {
     <div style={{ minHeight: '100vh', background: '#0f172a', color: '#e2e8f0', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
       {/* Top bar */}
       <div style={{ background: '#1e293b', borderBottom: '1px solid #334155', padding: '0 32px', display: 'flex', alignItems: 'center', height: 56, position: 'sticky', top: 0, zIndex: 100, gap: 8 }}>
-        <div style={{ fontWeight: 700, fontSize: 17, color: '#f1f5f9', letterSpacing: '-0.3px', marginRight: 16 }}>
-          Caldera Medical · Production
-        </div>
+        <img src={`${import.meta.env.BASE_URL}caldera-logo.svg`} alt="Caldera Medical" style={{ height: 36, marginRight: 12, flexShrink: 0 }} />
 
         {/* Page tabs */}
         {NAV_TABS.map(tab => (
