@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 100" fill="none">
+  <!-- C-arc shape (open right) -->
+  <path d="M78 10 A42 42 0 1 0 78 90 L78 76 A28 28 0 1 1 78 24 Z" fill="#90c9a0"/>
+  <!-- Location-pin person inside C -->
+  <!-- head circle -->
+  <circle cx="52" cy="36" r="8" fill="#f0faf3"/>
+  <!-- body arc (arms/shoulders) -->
+  <path d="M36 68 Q52 50 68 68" stroke="#f0faf3" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+  <!-- CALDERA text -->
+  <text x="96" y="52" font-family="'Arial','Helvetica',sans-serif" font-size="40" font-weight="900" fill="#1b6535" letter-spacing="1">CALDERA</text>
+  <!-- MEDICAL text -->
+  <text x="96" y="82" font-family="'Arial','Helvetica',sans-serif" font-size="28" font-weight="400" fill="#90c9a0" letter-spacing="4">MEDICAL</text>
+</svg>
