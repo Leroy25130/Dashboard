@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, LabelList,
+  ResponsiveContainer, Cell, LabelList, ReferenceLine,
 } from 'recharts';
 import SectionHeader from './SectionHeader';
 import MultiSelect from './MultiSelect';
 import stdCost from '../data/std_cost_data.json';
+import { monthLabel, sortedMonths } from '../utils/dataHelpers';
 
 const FG_CODES = new Set([
   '810051','810061','810081','830041',
@@ -748,7 +749,258 @@ function ComponentsAtRisk({ data }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function Inventory({ data }) {
+// ── Inventory FG Safety Stock ────────────────────────────────────────────────
+const SS_TARGET   = 2.5;
+const SS_MIN      = 2.0;
+const SS_MAX      = 3.5;
+
+function coverageColor(c) {
+  if (c === null || c === undefined) return '#64748b';
+  if (c < SS_MIN)  return '#ef4444'; // critical
+  if (c < SS_TARGET) return '#f59e0b'; // below target
+  if (c <= SS_MAX) return '#10b981'; // on target
+  return '#8b5cf6'; // excess
+}
+function coverageStatus(c) {
+  if (c === null || c === undefined) return '—';
+  if (c < SS_MIN)    return '🔴 Critical';
+  if (c < SS_TARGET) return '🟡 Below target';
+  if (c <= SS_MAX)   return '🟢 On target';
+  return '🟣 Excess';
+}
+
+function toISOInv(d) { return d?.replace(/\//g, '-'); }
+
+function InventoryFGSS({ data, salesData }) {
+  const [ssMonths, setSsMonths] = useState(new Set());
+
+  // ── Available months from sales data ────────────────────────────────────
+  const availableMonths = useMemo(() => {
+    const ms = new Set();
+    (salesData || []).forEach(r => {
+      const m = monthLabel(toISOInv(r['Shipped Date']));
+      if (m && m !== 'Unknown') ms.add(m);
+    });
+    return sortedMonths([...ms]);
+  }, [salesData]);
+
+  // Last 6 complete months (exclude the current, potentially partial, month)
+  const currentMonthLabel = new Date().toLocaleString('en-US', { month: 'short', year: 'numeric' });
+  const last6Complete = useMemo(() =>
+    availableMonths.filter(m => m !== currentMonthLabel).slice(-6),
+    [availableMonths, currentMonthLabel]);
+
+  const effectiveMonths = ssMonths.size > 0 ? [...ssMonths] : last6Complete;
+  const numMonths = effectiveMonths.length;
+
+  // ── Current stock at DCNTL per FG item ───────────────────────────────────
+  const dcntlStock = useMemo(() => {
+    const map = {};
+    (data || []).filter(r => r['Subinventory'] === 'DCNTL' && FG_CODES.has(r['Item'])).forEach(r => {
+      map[r['Item']] = (map[r['Item']] || 0) + (Number(r['Quantity']) || 0);
+    });
+    return map;
+  }, [data]);
+
+  // Item descriptions
+  const itemDesc = useMemo(() => {
+    const map = {};
+    (data || []).forEach(r => {
+      if (r['Item'] && r['Item Description'] && !map[r['Item']]) map[r['Item']] = r['Item Description'];
+    });
+    (salesData || []).forEach(r => {
+      if (r['Item'] && r['Description'] && !map[r['Item']]) map[r['Item']] = r['Description'];
+    });
+    return map;
+  }, [data, salesData]);
+
+  // ── Monthly shipments per FG item (within effective months) ──────────────
+  const fgShipments = useMemo(() => {
+    const map = {}; // item -> { total, byMonth }
+    const monthSet = new Set(effectiveMonths);
+    (salesData || []).forEach(r => {
+      if (!FG_CODES.has(r['Item'])) return;
+      if (!r['Shipped Date'] || r['Shipped Quantity'] == null) return;
+      const m = monthLabel(toISOInv(r['Shipped Date']));
+      if (!monthSet.has(m)) return;
+      if (!map[r['Item']]) map[r['Item']] = { total: 0, byMonth: {} };
+      const qty = Number(r['Shipped Quantity']) || 0;
+      map[r['Item']].total += qty;
+      map[r['Item']].byMonth[m] = (map[r['Item']].byMonth[m] || 0) + qty;
+    });
+    return map;
+  }, [salesData, effectiveMonths]);
+
+  // ── KPI rows (all FG items that appear in DCNTL or have shipments) ────────
+  const allFGItems = useMemo(() => {
+    const s = new Set([...Object.keys(dcntlStock), ...Object.keys(fgShipments)]);
+    return [...s].filter(i => FG_CODES.has(i)).sort();
+  }, [dcntlStock, fgShipments]);
+
+  const kpiRows = useMemo(() => allFGItems.map(item => {
+    const stock      = dcntlStock[item] || 0;
+    const total      = fgShipments[item]?.total || 0;
+    const avgDemand  = numMonths > 0 ? total / numMonths : 0;
+    const ssTarget   = +(avgDemand * SS_TARGET).toFixed(0);
+    const coverage   = avgDemand > 0 ? +(stock / avgDemand).toFixed(2) : null;
+    return { item, desc: itemDesc[item] || '', stock, avgDemand: +avgDemand.toFixed(1), ssTarget, coverage, byMonth: fgShipments[item]?.byMonth || {} };
+  }), [allFGItems, dcntlStock, fgShipments, numMonths, itemDesc]);
+
+  const critical   = kpiRows.filter(r => r.coverage !== null && r.coverage < SS_MIN).length;
+  const belowTgt   = kpiRows.filter(r => r.coverage !== null && r.coverage >= SS_MIN && r.coverage < SS_TARGET).length;
+  const onTarget   = kpiRows.filter(r => r.coverage !== null && r.coverage >= SS_TARGET && r.coverage <= SS_MAX).length;
+  const excess     = kpiRows.filter(r => r.coverage !== null && r.coverage > SS_MAX).length;
+  const noData     = kpiRows.filter(r => r.coverage === null).length;
+
+  const chartRows  = kpiRows.filter(r => r.avgDemand > 0).sort((a, b) => (a.coverage ?? 999) - (b.coverage ?? 999));
+
+  // Monthly shipment chart data per effective month
+  const demandChartData = useMemo(() => effectiveMonths.map(m => {
+    const row = { month: m };
+    allFGItems.forEach(item => { row[item] = fgShipments[item]?.byMonth[m] || 0; });
+    return row;
+  }), [effectiveMonths, allFGItems, fgShipments]);
+
+  const th2 = { padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontWeight: 600, borderBottom: '1px solid #334155', fontSize: 12 };
+  const td2 = { padding: '7px 12px', color: '#e2e8f0', borderBottom: '1px solid #1e293b', fontSize: 13 };
+  const clearBtn = { background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 12 };
+
+  return (
+    <div id="inv-fgss">
+      <SectionHeader title="Inventory FG Safety Stock" icon="📊" />
+
+      {/* Info band */}
+      <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 12, color: '#64748b', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+        <span>Target: <strong style={{ color: '#10b981' }}>2.5 months</strong> coverage</span>
+        <span>Min: <strong style={{ color: '#ef4444' }}>2.0 months</strong></span>
+        <span>Max: <strong style={{ color: '#8b5cf6' }}>3.5 months</strong></span>
+        <span>Stock location: <strong style={{ color: '#f1f5f9' }}>DCNTL</strong></span>
+        <span>Period: <strong style={{ color: '#f1f5f9' }}>{numMonths} month{numMonths !== 1 ? 's' : ''}</strong>
+          {ssMonths.size === 0 && <span style={{ color: '#475569' }}> (default: last 6 complete)</span>}
+        </span>
+      </div>
+
+      {/* Summary pills */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        <Pill label="Critical < 2 months"    value={critical}  color="#ef4444" />
+        <Pill label="Below target 2–2.5 m"   value={belowTgt}  color="#f59e0b" />
+        <Pill label="On target 2.5–3.5 m"    value={onTarget}  color="#10b981" />
+        <Pill label="Excess > 3.5 months"    value={excess}    color="#8b5cf6" />
+        {noData > 0 && <Pill label="No demand data" value={noData} color="#475569" />}
+      </div>
+
+      {/* Month selector */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
+        <MultiSelect
+          options={availableMonths}
+          selected={ssMonths}
+          onChange={setSsMonths}
+          label="Shipment months:"
+          allLabel="Default (last 6 complete)"
+          minWidth={220}
+        />
+        {ssMonths.size > 0 && (
+          <button onClick={() => setSsMonths(new Set())} style={clearBtn}>Reset to default</button>
+        )}
+        <div style={{ color: '#64748b', fontSize: 12 }}>
+          {effectiveMonths.join(' · ')}
+        </div>
+      </div>
+
+      {/* ── Coverage bar chart ─────────────────────────────────────────── */}
+      <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>
+          Coverage (months) = DCNTL stock ÷ avg monthly demand · reference lines at 2.0 / 2.5 / 3.5 months
+        </div>
+        <ResponsiveContainer width="100%" height={Math.max(280, chartRows.length * 40)}>
+          <BarChart layout="vertical" data={chartRows} margin={{ top: 16, right: 90, bottom: 4, left: 84 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+            <XAxis type="number" domain={[0, 'auto']} tick={{ fill: '#94a3b8', fontSize: 11 }} unit="m" />
+            <YAxis type="category" dataKey="item" tick={{ fill: '#e2e8f0', fontSize: 12 }} width={80} />
+            <Tooltip
+              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }}
+              labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
+              content={({ payload, label }) => payload?.length ? (
+                <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+                  <div style={{ color: '#f1f5f9', fontWeight: 700, marginBottom: 4 }}>{label}</div>
+                  <div style={{ color: '#94a3b8' }}>{payload[0]?.payload?.desc}</div>
+                  <div style={{ marginTop: 6 }}>
+                    <span style={{ color: coverageColor(payload[0]?.payload?.coverage), fontWeight: 700 }}>
+                      {payload[0]?.payload?.coverage !== null ? `${payload[0].payload.coverage}m coverage` : 'No demand'}
+                    </span>
+                  </div>
+                  <div style={{ color: '#94a3b8', marginTop: 2 }}>Stock: {payload[0]?.payload?.stock?.toLocaleString()}</div>
+                  <div style={{ color: '#94a3b8' }}>Avg demand: {payload[0]?.payload?.avgDemand?.toLocaleString()}/month</div>
+                  <div style={{ color: '#94a3b8' }}>SS target (2.5×): {payload[0]?.payload?.ssTarget?.toLocaleString()}</div>
+                </div>
+              ) : null}
+            />
+            <ReferenceLine x={SS_MIN}    stroke="#ef4444" strokeDasharray="5 4" label={{ value: '2.0m', fill: '#ef4444', fontSize: 10, position: 'insideTopRight' }} />
+            <ReferenceLine x={SS_TARGET} stroke="#f59e0b" strokeDasharray="5 4" label={{ value: '2.5m', fill: '#f59e0b', fontSize: 10, position: 'insideTopRight' }} />
+            <ReferenceLine x={SS_MAX}    stroke="#8b5cf6" strokeDasharray="5 4" label={{ value: '3.5m', fill: '#8b5cf6', fontSize: 10, position: 'insideTopRight' }} />
+            <Bar dataKey="coverage" radius={[0,3,3,0]}>
+              <LabelList dataKey="coverage" position="right" formatter={v => v !== null ? `${v}m` : '—'} style={{ fill: '#94a3b8', fontSize: 11 }} />
+              {chartRows.map((row, i) => <Cell key={i} fill={coverageColor(row.coverage)} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ── Monthly demand chart ───────────────────────────────────────── */}
+      <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>Monthly shipments by FG item over selected period</div>
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={demandChartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+            <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
+            <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }} labelStyle={{ color: '#e2e8f0', fontWeight: 600 }} formatter={v => [v.toLocaleString(), '']} />
+            {allFGItems.map((item, idx) => {
+              const colors = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#ec4899','#84cc16','#f97316','#14b8a6','#a78bfa'];
+              return <Bar key={item} dataKey={item} stackId="a" fill={colors[idx % colors.length]} name={item} />;
+            })}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ── Detail table ───────────────────────────────────────────────── */}
+      <div style={{ overflowX: 'auto', marginBottom: 32 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#1e293b' }}>
+              {['Item','Description','Current Stock (DCNTL)','Avg Monthly Demand','SS Target (×2.5)','Coverage (months)','Status'].map(h => (
+                <th key={h} style={th2}>{h}</th>
+              ))}
+              {effectiveMonths.map(m => <th key={m} style={{ ...th2, whiteSpace: 'nowrap' }}>{m}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {kpiRows.map((r, i) => (
+              <tr key={i} style={{ background: i % 2 === 0 ? '#0f172a' : '#1e293b' }}>
+                <td style={{ ...td2, fontWeight: 700 }}>{r.item}</td>
+                <td style={{ ...td2, color: '#94a3b8', maxWidth: 200 }}>{r.desc}</td>
+                <td style={{ ...td2, fontWeight: 700, color: '#f1f5f9' }}>{r.stock.toLocaleString()}</td>
+                <td style={td2}>{r.avgDemand.toLocaleString()}</td>
+                <td style={td2}>{r.ssTarget.toLocaleString()}</td>
+                <td style={{ ...td2, fontWeight: 700, color: coverageColor(r.coverage), fontSize: 14 }}>
+                  {r.coverage !== null ? `${r.coverage}m` : '—'}
+                </td>
+                <td style={{ ...td2, fontWeight: 600, color: coverageColor(r.coverage) }}>{coverageStatus(r.coverage)}</td>
+                {effectiveMonths.map(m => (
+                  <td key={m} style={{ ...td2, textAlign: 'right', color: r.byMonth[m] ? '#e2e8f0' : '#475569' }}>
+                    {(r.byMonth[m] || 0).toLocaleString()}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export default function Inventory({ data, salesData }) {
   if (!data || data.length === 0) {
     return <div style={{ padding: 40, color: '#64748b', fontSize: 15 }}>No inventory data available. Upload an Inventory Management Report via "Update Data".</div>;
   }
@@ -776,6 +1028,9 @@ export default function Inventory({ data }) {
       </div>
       <div style={{ marginTop: 32 }}>
         <ComponentsAtRisk data={data} />
+      </div>
+      <div style={{ marginTop: 32 }}>
+        <InventoryFGSS data={data} salesData={salesData || []} />
       </div>
       <div style={{ height: 60 }} />
     </div>

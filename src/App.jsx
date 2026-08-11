@@ -253,6 +253,7 @@ function Dashboard() {
               { id: 'inv-fg-exp',   label: '✅ FG Expiry' },
               { id: 'inv-quar',     label: '⚠️ Quarantine' },
               { id: 'inv-atrisk',   label: '🚨 Components at Risk' },
+              { id: 'inv-fgss',     label: '📊 FG Safety Stock' },
             ].map(s => (
               <button key={s.id}
                 onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
@@ -264,7 +265,7 @@ function Dashboard() {
             ))}
           </div>
           <div style={{ flex: 1, padding: '28px 36px', overflowY: 'auto' }}>
-            <Inventory data={inventoryData} />
+            <Inventory data={inventoryData} salesData={salesData} />
           </div>
         </div>
       )}
