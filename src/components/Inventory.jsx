@@ -796,7 +796,7 @@ function InventoryFGSS({ data, salesData }) {
   // ── Current stock at DCNTL per FG item ───────────────────────────────────
   const dcntlStock = useMemo(() => {
     const map = {};
-    (data || []).filter(r => r['Subinventory'] === 'DCNTL' && FG_CODES.has(r['Item'])).forEach(r => {
+    (data || []).filter(r => r['Subinventory'] === 'DCNTL' && FG_CODES.has(r['Item']) && r['Material Status'] === 'Active').forEach(r => {
       map[r['Item']] = (map[r['Item']] || 0) + (Number(r['Quantity']) || 0);
     });
     return map;
@@ -874,7 +874,7 @@ function InventoryFGSS({ data, salesData }) {
         <span>Target: <strong style={{ color: '#10b981' }}>2.5 months</strong> coverage</span>
         <span>Min: <strong style={{ color: '#ef4444' }}>2.0 months</strong></span>
         <span>Max: <strong style={{ color: '#8b5cf6' }}>3.5 months</strong></span>
-        <span>Stock location: <strong style={{ color: '#f1f5f9' }}>DCNTL</strong></span>
+        <span>Stock location: <strong style={{ color: '#f1f5f9' }}>DCNTL</strong> · Material Status: <strong style={{ color: '#f1f5f9' }}>Active only</strong></span>
         <span>Period: <strong style={{ color: '#f1f5f9' }}>{numMonths} month{numMonths !== 1 ? 's' : ''}</strong>
           {ssMonths.size === 0 && <span style={{ color: '#475569' }}> (default: last 6 complete)</span>}
         </span>
