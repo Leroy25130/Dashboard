@@ -830,6 +830,7 @@ function weekLabel(d) {
 function InventoryFGSS({ data, salesData }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [ssMonths,        setSsMonths]        = useState(new Set());
+  const [shelfLifeMonths, setShelfLifeMonths] = useState(4);
 
   // ── Available demand months from sales data ───────────────────────────────
   const availableMonths = useMemo(() => {
@@ -945,7 +946,7 @@ function InventoryFGSS({ data, salesData }) {
     const itemWIP      = WIP_RELEASES[item] || {};
 
     const weeks = projWeeks.map((weekStart, n) => {
-      const minExpiry = addMonths(weekStart, 4);
+      const minExpiry = addMonths(weekStart, shelfLifeMonths);
       const qualifyingStock = itemLots.reduce((s, l) => {
         if (l.expiry === null || l.expiry >= minExpiry) return s + l.qty;
         return s;
@@ -962,7 +963,7 @@ function InventoryFGSS({ data, salesData }) {
       return { netStock: +netStock.toFixed(0), coverage, wipThisWeek };
     });
     return { item, avgDemand, weeklyDemand: +weeklyDemand.toFixed(1), weeks };
-  }), [allFGItems, kpiRows, fgLots, projWeeks]);
+  }), [allFGItems, kpiRows, fgLots, projWeeks, shelfLifeMonths]);
 
   // ── Summary counts ────────────────────────────────────────────────────────
   const critical  = kpiRows.filter(r => r.coverage !== null && r.coverage < SS_MIN).length;
@@ -993,7 +994,7 @@ function InventoryFGSS({ data, salesData }) {
         <span>Min: <strong style={{ color: '#ef4444' }}>2.0 months</strong></span>
         <span>Max: <strong style={{ color: '#8b5cf6' }}>3.5 months</strong></span>
         <span>Material Status: <strong style={{ color: '#f1f5f9' }}>Active only</strong></span>
-        <span>Projection: <strong style={{ color: '#f1f5f9' }}>26 weeks · DCNTL stock + WIP releases (CW40–CW1 2027) · ≥4m shelf life · cumulative demand deducted</strong></span>
+        <span>Projection: <strong style={{ color: '#f1f5f9' }}>26 weeks · DCNTL stock + WIP releases (CW40–CW1 2027) · ≥{shelfLifeMonths}m shelf life · cumulative demand deducted</strong></span>
       </div>
 
       {/* Summary pills */}
@@ -1008,7 +1009,24 @@ function InventoryFGSS({ data, salesData }) {
       {/* ── Controls ────────────────────────────────────────────────────── */}
       <div style={{ background: '#1e293b', borderRadius: 10, padding: '14px 18px', marginBottom: 20, display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
-        {/* Location toggle */}
+        {/* Shelf-life threshold toggle */}
+        <div>
+          <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Shelf-life filter (projection)</div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[4, 6].map(m => (
+              <button key={m} onClick={() => setShelfLifeMonths(m)} style={{
+                padding: '5px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                background: shelfLifeMonths === m ? '#3b82f6' : '#0f172a',
+                color:      shelfLifeMonths === m ? '#fff'    : '#94a3b8',
+                border: `1px solid ${shelfLifeMonths === m ? '#3b82f6' : '#334155'}`,
+              }}>{m} months</button>
+            ))}
+          </div>
+          <div style={{ color: '#475569', fontSize: 11, marginTop: 6 }}>
+            Lots with &lt;{shelfLifeMonths}m shelf life at each week excluded
+          </div>
+        </div>
+
         {/* Demand month selector */}
         <div style={{ flex: 1, minWidth: 260 }}>
           <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
@@ -1127,7 +1145,7 @@ function InventoryFGSS({ data, salesData }) {
         26-week coverage projection (calendar week by calendar week)
       </div>
       <div style={{ color: '#64748b', fontSize: 11, marginBottom: 10 }}>
-        Per week: DCNTL stock (≥4m shelf life) + cumulative WIP releases · minus cumulative weekly demand · coverage in months · <span style={{ color: '#34d399' }}>green = WIP arriving that week</span>
+        Per week: DCNTL stock (≥{shelfLifeMonths}m shelf life) + cumulative WIP releases · minus cumulative weekly demand · coverage in months · <span style={{ color: '#34d399' }}>green = WIP arriving that week</span>
       </div>
       <div style={{ overflowX: 'auto', marginBottom: 32 }}>
         <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
