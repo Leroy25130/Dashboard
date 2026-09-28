@@ -934,33 +934,61 @@ function InventoryFGSS({ data, salesData }) {
   const projWeekLabels = projWeeks.map(weekLabel);
 
   // Weekly demand = avgMonthlyDemand × 12 / 52
-  // For each item × week:
-  //   qualifying_stock = DCNTL lots with expiry null OR expiry >= weekStart + 4 months
-  //   cumulativeWIP    = sum of WIP releases up to and including this week
-  //   consumed         = n * weeklyDemand  (weeks 0..n-1 consumed)
-  //   coverage in months = netStock / avgMonthlyDemand
+  // FEFO projection: consume cumulative demand from earliest-expiring lots first,
+  // then filter remaining lots for ≥6m shelf life to get qualifying (safe) stock.
+  // WIP releases are treated as non-expiring (last in FEFO order).
   const projectionRows = useMemo(() => allFGItems.map(item => {
     const avgDemand    = kpiRows.find(r => r.item === item)?.avgDemand || 0;
     const weeklyDemand = avgDemand * 12 / 52;
     const itemLots     = fgLots.filter(l => l.item === item);
     const itemWIP      = WIP_RELEASES[item] || {};
+    const wipEntries   = Object.entries(itemWIP);
 
     const weeks = projWeeks.map((weekStart, n) => {
+      const weekDateStr = weekStart.getFullYear() + '-' +
+        String(weekStart.getMonth()+1).padStart(2,'0') + '-' +
+        String(weekStart.getDate()).padStart(2,'0');
+
+      const wipThisWeek  = itemWIP[weekDateStr] || 0;
+      const cumulativeWIP = wipEntries
+        .filter(([date]) => date <= weekDateStr)
+        .reduce((s, [, qty]) => s + qty, 0);
+
+      // Build lot pool: DCNTL lots + WIP (non-expiring, goes last in FEFO)
+      const lotPool = itemLots.map(l => ({ qty: l.qty, expiry: l.expiry }));
+      if (cumulativeWIP > 0) lotPool.push({ qty: cumulativeWIP, expiry: null });
+
+      // Sort FEFO: earliest expiry first; null (non-expiring / WIP) last
+      lotPool.sort((a, b) => {
+        if (a.expiry === null && b.expiry === null) return 0;
+        if (a.expiry === null) return 1;
+        if (b.expiry === null) return -1;
+        return a.expiry - b.expiry;
+      });
+
+      // Consume n × weeklyDemand from earliest-expiring lots first
+      let toConsume = n * weeklyDemand;
+      const remaining = [];
+      for (const lot of lotPool) {
+        if (toConsume <= 0) {
+          remaining.push(lot);
+        } else if (lot.qty <= toConsume) {
+          toConsume -= lot.qty; // fully consumed
+        } else {
+          remaining.push({ qty: lot.qty - toConsume, expiry: lot.expiry });
+          toConsume = 0;
+        }
+      }
+
+      // Qualifying stock = remaining lots with ≥6m shelf life at this week
       const minExpiry = addMonths(weekStart, shelfLifeMonths);
-      const qualifyingStock = itemLots.reduce((s, l) => {
+      const qualifyingStock = remaining.reduce((s, l) => {
         if (l.expiry === null || l.expiry >= minExpiry) return s + l.qty;
         return s;
       }, 0);
-      // WIP: cumulative releases up to this week that also pass shelf-life (no expiry assumed for WIP)
-      const weekDateStr = weekStart.getFullYear() + '-' + String(weekStart.getMonth()+1).padStart(2,'0') + '-' + String(weekStart.getDate()).padStart(2,'0');
-      const wipThisWeek = itemWIP[weekDateStr] || 0;
-      const cumulativeWIP = Object.entries(itemWIP)
-        .filter(([date]) => date <= weekDateStr)
-        .reduce((s, [, qty]) => s + qty, 0);
-      const consumed  = n * weeklyDemand;
-      const netStock  = Math.max(0, qualifyingStock + cumulativeWIP - consumed);
-      const coverage  = avgDemand > 0 ? +(netStock / avgDemand).toFixed(2) : null;
-      return { netStock: +netStock.toFixed(0), coverage, wipThisWeek };
+
+      const coverage = avgDemand > 0 ? +(qualifyingStock / avgDemand).toFixed(2) : null;
+      return { netStock: +qualifyingStock.toFixed(0), coverage, wipThisWeek };
     });
     return { item, avgDemand, weeklyDemand: +weeklyDemand.toFixed(1), weeks };
   }), [allFGItems, kpiRows, fgLots, projWeeks]);
@@ -1127,7 +1155,7 @@ function InventoryFGSS({ data, salesData }) {
         26-week coverage projection (calendar week by calendar week)
       </div>
       <div style={{ color: '#64748b', fontSize: 11, marginBottom: 10 }}>
-        Per week: DCNTL stock (≥{shelfLifeMonths}m shelf life) + cumulative WIP releases · minus cumulative weekly demand · coverage in months · <span style={{ color: '#34d399' }}>green = WIP arriving that week</span>
+        Per week: FEFO consumption (earliest expiry first) · remaining stock with ≥{shelfLifeMonths}m shelf life shown · <span style={{ color: '#34d399' }}>green = WIP arriving that week</span>
       </div>
       <div style={{ overflowX: 'auto', marginBottom: 32 }}>
         <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
