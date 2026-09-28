@@ -937,60 +937,61 @@ function InventoryFGSS({ data, salesData, psiData }) {
   const projWeekLabels = projWeeks.map(weekLabel);
 
   // Weekly demand = avgMonthlyDemand × 12 / 52
-  // Stateful FEFO projection: carry running lot balances week by week.
-  // Each week: add WIP arriving this week, consume weeklyDemand from FEFO
-  // (earliest-expiry first, WIP last), then count only lots still ≥6m shelf life.
-  const projectionRows = useMemo(() => allFGItems.map(item => {
-    const avgDemand    = kpiRows.find(r => r.item === item)?.avgDemand || 0;
-    const weeklyDemand = avgDemand * 12 / 52;
-    const itemWIP      = WIP[item] || {};
+  // Stateful FEFO projection: filter lots once at projection start (≥6m today),
+  // then carry running balances week by week consuming weeklyDemand each week.
+  // WIP is added when it arrives. No per-week re-filtering — lots already
+  // qualified at start are consumed until depleted.
+  const projectionRows = useMemo(() => {
+    const projStart = projWeeks[0];
+    const minExpiryAtStart = addMonths(projStart, shelfLifeMonths);
 
-    // Running lot pool: deep copy of current inventory lots
-    let runningLots = fgLots
-      .filter(l => l.item === item)
-      .map(l => ({ qty: l.qty, expiry: l.expiry }));
+    return allFGItems.map(item => {
+      const avgDemand    = kpiRows.find(r => r.item === item)?.avgDemand || 0;
+      const weeklyDemand = avgDemand * 12 / 52;
+      const itemWIP      = WIP[item] || {};
 
-    const weeks = projWeeks.map((weekStart) => {
-      const weekDateStr = weekStart.getFullYear() + '-' +
-        String(weekStart.getMonth()+1).padStart(2,'0') + '-' +
-        String(weekStart.getDate()).padStart(2,'0');
+      // Qualify lots once at projection start (≥6m shelf life today)
+      let runningLots = fgLots
+        .filter(l => l.item === item && (l.expiry === null || l.expiry >= minExpiryAtStart))
+        .map(l => ({ qty: l.qty, expiry: l.expiry }));
 
-      const wipThisWeek = itemWIP[weekDateStr] || 0;
+      const weeks = projWeeks.map((weekStart) => {
+        const weekDateStr = weekStart.getFullYear() + '-' +
+          String(weekStart.getMonth()+1).padStart(2,'0') + '-' +
+          String(weekStart.getDate()).padStart(2,'0');
 
-      // Add WIP arriving this week as a non-expiring lot
-      if (wipThisWeek > 0) runningLots.push({ qty: wipThisWeek, expiry: null });
+        const wipThisWeek = itemWIP[weekDateStr] || 0;
 
-      // Sort FEFO: earliest expiry first, null (WIP) last
-      runningLots.sort((a, b) => {
-        if (a.expiry === null && b.expiry === null) return 0;
-        if (a.expiry === null) return 1;
-        if (b.expiry === null) return -1;
-        return a.expiry - b.expiry;
+        // Add WIP arriving this week as a non-expiring lot
+        if (wipThisWeek > 0) runningLots.push({ qty: wipThisWeek, expiry: null });
+
+        // Sort FEFO: earliest expiry first, null (WIP) last
+        runningLots.sort((a, b) => {
+          if (a.expiry === null && b.expiry === null) return 0;
+          if (a.expiry === null) return 1;
+          if (b.expiry === null) return -1;
+          return a.expiry - b.expiry;
+        });
+
+        // Consume weeklyDemand from FEFO order, updating running balances
+        let toConsume = weeklyDemand;
+        for (const lot of runningLots) {
+          if (toConsume <= 0) break;
+          const consumed = Math.min(lot.qty, toConsume);
+          lot.qty -= consumed;
+          toConsume -= consumed;
+        }
+
+        // Remove fully depleted lots
+        runningLots = runningLots.filter(l => l.qty > 0);
+
+        const qualifyingStock = runningLots.reduce((s, l) => s + l.qty, 0);
+        const coverage = avgDemand > 0 ? +(qualifyingStock / avgDemand).toFixed(2) : null;
+        return { netStock: +qualifyingStock.toFixed(0), coverage, wipThisWeek };
       });
-
-      // Consume weeklyDemand from FEFO order, updating running balances
-      let toConsume = weeklyDemand;
-      for (const lot of runningLots) {
-        if (toConsume <= 0) break;
-        const consumed = Math.min(lot.qty, toConsume);
-        lot.qty -= consumed;
-        toConsume -= consumed;
-      }
-
-      // Remove fully depleted lots
-      runningLots = runningLots.filter(l => l.qty > 0);
-
-      // Count only lots with ≥6m shelf life remaining at this week's start
-      const minExpiry = addMonths(weekStart, shelfLifeMonths);
-      const qualifyingStock = runningLots
-        .filter(l => l.expiry === null || l.expiry >= minExpiry)
-        .reduce((s, l) => s + l.qty, 0);
-
-      const coverage = avgDemand > 0 ? +(qualifyingStock / avgDemand).toFixed(2) : null;
-      return { netStock: +qualifyingStock.toFixed(0), coverage, wipThisWeek };
+      return { item, avgDemand, weeklyDemand: +weeklyDemand.toFixed(1), weeks };
     });
-    return { item, avgDemand, weeklyDemand: +weeklyDemand.toFixed(1), weeks };
-  }), [allFGItems, kpiRows, fgLots, projWeeks]);
+  }, [allFGItems, kpiRows, fgLots, projWeeks]);
 
   // ── Summary counts ────────────────────────────────────────────────────────
   const critical  = kpiRows.filter(r => r.coverage !== null && (r.coverage < SS_ORA_LOW || r.coverage > SS_ORA_HIGH)).length;
