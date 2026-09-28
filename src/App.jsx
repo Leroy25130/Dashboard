@@ -35,7 +35,7 @@ const NAV_TABS = [
 ];
 
 function Dashboard() {
-  const { woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, salesData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, updateSales, lastUpdated } = useData();
+  const { woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, salesData, psiData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, updateSales, updatePSI, lastUpdated } = useData();
   const [showUpload, setShowUpload] = useState(false);
   const [activePage, setActivePage] = useState('summary');
 
@@ -60,6 +60,7 @@ function Dashboard() {
     if (type === 'po')           updatePO(newData, filename);
     if (type === 'inventory')    updateInventory(newData, filename);
     if (type === 'sales')        updateSales(newData, filename);
+    if (type === 'psi')          updatePSI(newData, filename);
   };
 
   return (
@@ -265,7 +266,7 @@ function Dashboard() {
             ))}
           </div>
           <div style={{ flex: 1, padding: '28px 36px', overflowY: 'auto' }}>
-            <Inventory data={inventoryData} salesData={salesData} />
+            <Inventory data={inventoryData} salesData={salesData} psiData={psiData} />
           </div>
         </div>
       )}

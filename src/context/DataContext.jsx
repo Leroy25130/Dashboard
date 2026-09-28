@@ -17,12 +17,13 @@ const LS_DIST    = 'caldera_distribution_data';
 const LS_PO      = 'caldera_po_data';
 const LS_INV     = 'caldera_inventory_data';
 const LS_SALES   = 'caldera_sales_data';
+const LS_PSI     = 'caldera_psi_data';
 const LS_VERSION = 'caldera_data_version';
-const CACHE_VERSION = '5';  // bump this whenever default data changes
+const CACHE_VERSION = '6';  // bump this whenever default data changes
 
 // Clear stale localStorage if version doesn't match
 if (localStorage.getItem(LS_VERSION) !== CACHE_VERSION) {
-  [LS_WO, LS_ABS, LS_CC, LS_DIST, LS_PO, LS_INV, LS_SALES, 'caldera_last_updated'].forEach(k => localStorage.removeItem(k));
+  [LS_WO, LS_ABS, LS_CC, LS_DIST, LS_PO, LS_INV, LS_SALES, LS_PSI, 'caldera_last_updated'].forEach(k => localStorage.removeItem(k));
   localStorage.setItem(LS_VERSION, CACHE_VERSION);
 }
 
@@ -276,6 +277,48 @@ function parseSalesFile(workbook) {
   return rows;
 }
 
+// ── PSI Planning file parser ──────────────────────────────────────────────────
+// Returns { item: { 'YYYY-MM-DD': qty } } for all weeks in the PSI high level sheet
+function parsePSIFile(workbook) {
+  const sheetName = workbook.SheetNames.find(n => /psi high level/i.test(n));
+  if (!sheetName) throw new Error('Could not find "PSI high level" sheet in this file');
+  const ws = workbook.Sheets[sheetName];
+
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  const result = {};
+
+  // Build week map: col index → ISO date string (cols with numeric CW value in row 1)
+  const weekCols = [];
+  for (let C = 2; C <= range.e.c; C++) {
+    const cwCell   = ws[XLSX.utils.encode_cell({ r: 1, c: C })];
+    const dateCell = ws[XLSX.utils.encode_cell({ r: 0, c: C })];
+    if (!cwCell || typeof cwCell.v !== 'number') continue;
+    if (!dateCell || typeof dateCell.v !== 'number') continue;
+    const d = XLSX.SSF.parse_date_code(dateCell.v);
+    if (!d) continue;
+    const dateStr = d.y + '-' + String(d.m).padStart(2, '0') + '-' + String(d.d).padStart(2, '0');
+    weekCols.push({ col: C, dateStr });
+  }
+
+  if (weekCols.length === 0) throw new Error('No calendar weeks found in PSI high level sheet');
+
+  // Rows 2–20: item code in col B (index 1), quantities in week cols
+  for (let R = 2; R <= Math.min(range.e.r, 20); R++) {
+    const itemCell = ws[XLSX.utils.encode_cell({ r: R, c: 1 })];
+    if (!itemCell || !itemCell.v) continue;
+    const item = String(itemCell.v).trim();
+    if (!item || item === 'code') continue;
+    result[item] = {};
+    weekCols.forEach(({ col, dateStr }) => {
+      const cell = ws[XLSX.utils.encode_cell({ r: R, c: col })];
+      result[item][dateStr] = cell ? (Number(cell.v) || 0) : 0;
+    });
+  }
+
+  if (Object.keys(result).length === 0) throw new Error('No item data found in PSI high level sheet');
+  return result;
+}
+
 // ── Detect file type and parse ────────────────────────────────────────────────
 export function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
@@ -287,7 +330,9 @@ export function parseExcelFile(file) {
         const firstSheet = wb.Sheets[wb.SheetNames[0]];
         const firstCell  = String(XLSX.utils.sheet_to_json(firstSheet, { header: 1 })[0]?.[0] ?? '').toLowerCase();
 
-        if (firstCell.includes('inventory management report')) {
+        if (wb.SheetNames.some(n => /psi high level/i.test(n))) {
+          resolve({ type: 'psi', data: parsePSIFile(wb) });
+        } else if (firstCell.includes('inventory management report')) {
           resolve({ type: 'inventory', data: parseInventoryFile(wb) });
         } else if (firstCell.includes('work order') || firstCell.includes('caldera work order')) {
           resolve({ type: 'wo', data: parseWOFile(wb) });
@@ -356,6 +401,7 @@ export function DataProvider({ children }) {
   const [poData,           setPOData]           = useState(() => loadLS(LS_PO,    defaultPO));
   const [inventoryData,    setInventoryData]    = useState(() => loadLS(LS_INV,   defaultInventory));
   const [salesData,        setSalesData]        = useState(() => loadLS(LS_SALES, defaultSales));
+  const [psiData,          setPSIData]          = useState(() => loadLS(LS_PSI,   null));
   const [lastUpdated,    setLastUpdated]    = useState(() => {
     try { return JSON.parse(localStorage.getItem('caldera_last_updated') || '{}'); } catch { return {}; }
   });
@@ -416,8 +462,16 @@ export function DataProvider({ children }) {
     localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
   };
 
+  const updatePSI = (data, filename) => {
+    setPSIData(data);
+    localStorage.setItem(LS_PSI, JSON.stringify(data));
+    const ts = { ...lastUpdated, psi: { filename, at: new Date().toISOString() } };
+    setLastUpdated(ts);
+    localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
+  };
+
   return (
-    <DataContext.Provider value={{ woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, salesData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, updateSales, lastUpdated }}>
+    <DataContext.Provider value={{ woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, salesData, psiData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, updateSales, updatePSI, lastUpdated }}>
       {children}
     </DataContext.Provider>
   );

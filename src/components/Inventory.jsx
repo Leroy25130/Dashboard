@@ -827,7 +827,9 @@ function weekLabel(d) {
   return `CW${wk}\n${mon} ${day}`;
 }
 
-function InventoryFGSS({ data, salesData }) {
+function InventoryFGSS({ data, salesData, psiData }) {
+  // Use uploaded PSI data when available, fall back to hardcoded releases
+  const WIP = psiData || WIP_RELEASES;
   // ── State ────────────────────────────────────────────────────────────────
   const [ssMonths, setSsMonths] = useState(new Set());
   const shelfLifeMonths = 6;
@@ -941,7 +943,7 @@ function InventoryFGSS({ data, salesData }) {
     const avgDemand    = kpiRows.find(r => r.item === item)?.avgDemand || 0;
     const weeklyDemand = avgDemand * 12 / 52;
     const itemLots     = fgLots.filter(l => l.item === item);
-    const itemWIP      = WIP_RELEASES[item] || {};
+    const itemWIP      = WIP[item] || {};
     const wipEntries   = Object.entries(itemWIP);
 
     const weeks = projWeeks.map((weekStart, n) => {
@@ -1204,7 +1206,7 @@ function InventoryFGSS({ data, salesData }) {
   );
 }
 
-export default function Inventory({ data, salesData }) {
+export default function Inventory({ data, salesData, psiData }) {
   if (!data || data.length === 0) {
     return <div style={{ padding: 40, color: '#64748b', fontSize: 15 }}>No inventory data available. Upload an Inventory Management Report via "Update Data".</div>;
   }
@@ -1234,7 +1236,7 @@ export default function Inventory({ data, salesData }) {
         <ComponentsAtRisk data={data} />
       </div>
       <div style={{ marginTop: 32 }}>
-        <InventoryFGSS data={data} salesData={salesData || []} />
+        <InventoryFGSS data={data} salesData={salesData || []} psiData={psiData} />
       </div>
       <div style={{ height: 60 }} />
     </div>
