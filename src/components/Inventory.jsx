@@ -919,7 +919,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
     const stock     = currentStock[item] || 0;
     const total     = fgShipments[item]?.total || 0;
     const avgDemand = numMonths > 0 ? total / numMonths : 0;
-    const ssTarget  = +(avgDemand * SS_TARGET).toFixed(0);
+    const ssTarget  = +(avgDemand * SS_GREEN_MAX).toFixed(0);
     const coverage  = avgDemand > 0 ? +(stock / avgDemand).toFixed(2) : null;
     return { item, desc: itemDesc[item] || '', stock, avgDemand: +avgDemand.toFixed(1), ssTarget, coverage, byMonth: fgShipments[item]?.byMonth || {} };
   }), [allFGItems, currentStock, fgShipments, numMonths, itemDesc]);
@@ -1020,7 +1020,6 @@ function InventoryFGSS({ data, salesData, psiData }) {
         <span>Green: <strong style={{ color: '#10b981' }}>2–2.5 months</strong></span>
         <span>Orange: <strong style={{ color: '#f59e0b' }}>1.5–2 or 2.5–3 months</strong></span>
         <span>Red: <strong style={{ color: '#ef4444' }}>&lt; 1.5 or &gt; 3 months</strong></span>
-        <span>Max: <strong style={{ color: '#8b5cf6' }}>3.5 months</strong></span>
         <span>Material Status: <strong style={{ color: '#f1f5f9' }}>Active only</strong></span>
         <span>Projection: <strong style={{ color: '#f1f5f9' }}>26 weeks · DCNTL stock + WIP releases (W40 plan, CW40–CW1 2027) · ≥{shelfLifeMonths}m shelf life · cumulative demand deducted</strong></span>
       </div>
@@ -1085,9 +1084,10 @@ function InventoryFGSS({ data, salesData, psiData }) {
                 </div>
               ) : null}
             />
-            <ReferenceLine x={SS_MIN}    stroke="#ef4444" strokeDasharray="5 4" label={{ value: '2.0m', fill: '#ef4444', fontSize: 10, position: 'insideTopRight' }} />
-            <ReferenceLine x={SS_TARGET} stroke="#f59e0b" strokeDasharray="5 4" label={{ value: '2.5m', fill: '#f59e0b', fontSize: 10, position: 'insideTopRight' }} />
-            <ReferenceLine x={SS_MAX}    stroke="#8b5cf6" strokeDasharray="5 4" label={{ value: '3.5m', fill: '#8b5cf6', fontSize: 10, position: 'insideTopRight' }} />
+            <ReferenceLine x={SS_ORA_LOW}   stroke="#ef4444" strokeDasharray="5 4" label={{ value: '1.5m', fill: '#ef4444', fontSize: 10, position: 'insideTopRight' }} />
+            <ReferenceLine x={SS_GREEN_MIN} stroke="#f59e0b" strokeDasharray="5 4" label={{ value: '2.0m', fill: '#f59e0b', fontSize: 10, position: 'insideTopRight' }} />
+            <ReferenceLine x={SS_GREEN_MAX} stroke="#10b981" strokeDasharray="5 4" label={{ value: '2.5m', fill: '#10b981', fontSize: 10, position: 'insideTopRight' }} />
+            <ReferenceLine x={SS_ORA_HIGH}  stroke="#ef4444" strokeDasharray="5 4" label={{ value: '3.0m', fill: '#ef4444', fontSize: 10, position: 'insideTopRight' }} />
             <Bar dataKey="coverage" radius={[0,3,3,0]}>
               <LabelList dataKey="coverage" position="right" formatter={v => v !== null ? `${v}m` : '—'} style={{ fill: '#94a3b8', fontSize: 11 }} />
               {chartRows.map((row, i) => <Cell key={i} fill={coverageColor(row.coverage)} />)}
