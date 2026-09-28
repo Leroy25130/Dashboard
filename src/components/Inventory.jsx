@@ -934,9 +934,9 @@ function InventoryFGSS({ data, salesData }) {
   const projWeekLabels = projWeeks.map(weekLabel);
 
   // Weekly demand = avgMonthlyDemand × 12 / 52
-  // FEFO projection: consume cumulative demand from earliest-expiring lots first,
-  // then filter remaining lots for ≥6m shelf life to get qualifying (safe) stock.
-  // WIP releases are treated as non-expiring (last in FEFO order).
+  // FEFO projection: filter lots to ≥6m shelf life first, then consume
+  // cumulative demand from earliest-expiring qualifying lots (FEFO within
+  // qualifying pool). WIP releases are non-expiring (last in FEFO order).
   const projectionRows = useMemo(() => allFGItems.map(item => {
     const avgDemand    = kpiRows.find(r => r.item === item)?.avgDemand || 0;
     const weeklyDemand = avgDemand * 12 / 52;
@@ -954,38 +954,34 @@ function InventoryFGSS({ data, salesData }) {
         .filter(([date]) => date <= weekDateStr)
         .reduce((s, [, qty]) => s + qty, 0);
 
-      // Build lot pool: DCNTL lots + WIP (non-expiring, goes last in FEFO)
-      const lotPool = itemLots.map(l => ({ qty: l.qty, expiry: l.expiry }));
-      if (cumulativeWIP > 0) lotPool.push({ qty: cumulativeWIP, expiry: null });
+      // Step 1: keep only qualifying lots (≥6m shelf life) + WIP (non-expiring)
+      const minExpiry = addMonths(weekStart, shelfLifeMonths);
+      const qualifyingLots = itemLots
+        .filter(l => l.expiry === null || l.expiry >= minExpiry)
+        .map(l => ({ qty: l.qty, expiry: l.expiry }));
+      if (cumulativeWIP > 0) qualifyingLots.push({ qty: cumulativeWIP, expiry: null });
 
-      // Sort FEFO: earliest expiry first; null (non-expiring / WIP) last
-      lotPool.sort((a, b) => {
+      // Step 2: sort FEFO within qualifying pool (earliest expiry first; null last)
+      qualifyingLots.sort((a, b) => {
         if (a.expiry === null && b.expiry === null) return 0;
         if (a.expiry === null) return 1;
         if (b.expiry === null) return -1;
         return a.expiry - b.expiry;
       });
 
-      // Consume n × weeklyDemand from earliest-expiring lots first
+      // Step 3: consume n × weeklyDemand from qualifying lots in FEFO order
       let toConsume = n * weeklyDemand;
-      const remaining = [];
-      for (const lot of lotPool) {
+      let qualifyingStock = 0;
+      for (const lot of qualifyingLots) {
         if (toConsume <= 0) {
-          remaining.push(lot);
+          qualifyingStock += lot.qty;
         } else if (lot.qty <= toConsume) {
-          toConsume -= lot.qty; // fully consumed
+          toConsume -= lot.qty;
         } else {
-          remaining.push({ qty: lot.qty - toConsume, expiry: lot.expiry });
+          qualifyingStock += lot.qty - toConsume;
           toConsume = 0;
         }
       }
-
-      // Qualifying stock = remaining lots with ≥6m shelf life at this week
-      const minExpiry = addMonths(weekStart, shelfLifeMonths);
-      const qualifyingStock = remaining.reduce((s, l) => {
-        if (l.expiry === null || l.expiry >= minExpiry) return s + l.qty;
-        return s;
-      }, 0);
 
       const coverage = avgDemand > 0 ? +(qualifyingStock / avgDemand).toFixed(2) : null;
       return { netStock: +qualifyingStock.toFixed(0), coverage, wipThisWeek };
