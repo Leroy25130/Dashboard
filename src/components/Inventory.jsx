@@ -760,14 +760,14 @@ function coverageColor(c) {
   if (c >= SS_GREEN_MIN && c <= SS_GREEN_MAX) return '#10b981'; // green
   if (c >= SS_ORA_LOW   && c <  SS_GREEN_MIN) return '#f59e0b'; // orange low
   if (c >  SS_GREEN_MAX && c <= SS_ORA_HIGH)  return '#f59e0b'; // orange high
-  return '#ef4444'; // red
+  return '#8b5cf6'; // purple
 }
 function coverageStatus(c) {
   if (c === null || c === undefined) return '—';
   if (c >= SS_GREEN_MIN && c <= SS_GREEN_MAX) return '🟢 On target';
   if (c >= SS_ORA_LOW   && c <  SS_GREEN_MIN) return '🟡 Below target';
   if (c >  SS_GREEN_MAX && c <= SS_ORA_HIGH)  return '🟡 Above target';
-  return '🔴 Critical';
+  return '🟣 Critical';
 }
 
 function toISOInv(d) { return d?.replace(/\//g, '-'); }
@@ -1019,14 +1019,14 @@ function InventoryFGSS({ data, salesData, psiData }) {
       <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 12, color: '#64748b', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
         <span>Green: <strong style={{ color: '#10b981' }}>2–2.5 months</strong></span>
         <span>Orange: <strong style={{ color: '#f59e0b' }}>1.5–2 or 2.5–3 months</strong></span>
-        <span>Red: <strong style={{ color: '#ef4444' }}>&lt; 1.5 or &gt; 3 months</strong></span>
+        <span>Purple: <strong style={{ color: '#8b5cf6' }}>&lt; 1.5 or &gt; 3 months</strong></span>
         <span>Material Status: <strong style={{ color: '#f1f5f9' }}>Active only</strong></span>
         <span>Projection: <strong style={{ color: '#f1f5f9' }}>26 weeks · DCNTL stock + WIP releases (W40 plan, CW40–CW1 2027) · ≥{shelfLifeMonths}m shelf life · cumulative demand deducted</strong></span>
       </div>
 
       {/* Summary pills */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <Pill label="Critical (< 1.5m or > 3m)" value={critical}  color="#ef4444" />
+        <Pill label="Critical (< 1.5m or > 3m)" value={critical}  color="#8b5cf6" />
         <Pill label="Low 1.5–2 m"             value={belowTgt}  color="#f59e0b" />
         <Pill label="On target 2–2.5 m"       value={onTarget}  color="#10b981" />
         <Pill label="High 2.5–3 m"            value={excess}    color="#f59e0b" />
@@ -1084,10 +1084,10 @@ function InventoryFGSS({ data, salesData, psiData }) {
                 </div>
               ) : null}
             />
-            <ReferenceLine x={SS_ORA_LOW}   stroke="#ef4444" strokeDasharray="5 4" label={{ value: '1.5m', fill: '#ef4444', fontSize: 10, position: 'insideTopRight' }} />
+            <ReferenceLine x={SS_ORA_LOW}   stroke="#8b5cf6" strokeDasharray="5 4" label={{ value: '1.5m', fill: '#8b5cf6', fontSize: 10, position: 'insideTopRight' }} />
             <ReferenceLine x={SS_GREEN_MIN} stroke="#f59e0b" strokeDasharray="5 4" label={{ value: '2.0m', fill: '#f59e0b', fontSize: 10, position: 'insideTopRight' }} />
             <ReferenceLine x={SS_GREEN_MAX} stroke="#10b981" strokeDasharray="5 4" label={{ value: '2.5m', fill: '#10b981', fontSize: 10, position: 'insideTopRight' }} />
-            <ReferenceLine x={SS_ORA_HIGH}  stroke="#ef4444" strokeDasharray="5 4" label={{ value: '3.0m', fill: '#ef4444', fontSize: 10, position: 'insideTopRight' }} />
+            <ReferenceLine x={SS_ORA_HIGH}  stroke="#8b5cf6" strokeDasharray="5 4" label={{ value: '3.0m', fill: '#8b5cf6', fontSize: 10, position: 'insideTopRight' }} />
             <Bar dataKey="coverage" radius={[0,3,3,0]}>
               <LabelList dataKey="coverage" position="right" formatter={v => v !== null ? `${v}m` : '—'} style={{ fill: '#94a3b8', fontSize: 11 }} />
               {chartRows.map((row, i) => <Cell key={i} fill={coverageColor(row.coverage)} />)}
