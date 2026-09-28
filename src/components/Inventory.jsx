@@ -779,6 +779,37 @@ function addMonths(date, n) {
   return d;
 }
 
+function nextMonday(from) {
+  const d = new Date(from);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0=Sun,1=Mon,...
+  const diff = day === 1 ? 7 : (8 - day) % 7 || 7;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function isoWeek(d) {
+  const jan4 = new Date(d.getFullYear(), 0, 4);
+  const startOfW1 = new Date(jan4);
+  startOfW1.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
+  const diff = d - startOfW1;
+  let wk = Math.floor(diff / 604800000) + 1;
+  if (wk < 1) {
+    const prevJan4 = new Date(d.getFullYear() - 1, 0, 4);
+    const prevStart = new Date(prevJan4);
+    prevStart.setDate(prevJan4.getDate() - ((prevJan4.getDay() + 6) % 7));
+    wk = Math.floor((d - prevStart) / 604800000) + 1;
+  }
+  return wk;
+}
+
+function weekLabel(d) {
+  const wk = isoWeek(d);
+  const mon = d.toLocaleString('en-US', { month: 'short' });
+  const day = d.getDate();
+  return `CW${wk}\n${mon} ${day}`;
+}
+
 function InventoryFGSS({ data, salesData }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [ssMonths,        setSsMonths]        = useState(new Set());
@@ -872,38 +903,41 @@ function InventoryFGSS({ data, salesData }) {
     return { item, desc: itemDesc[item] || '', stock, avgDemand: +avgDemand.toFixed(1), ssTarget, coverage, byMonth: fgShipments[item]?.byMonth || {} };
   }), [allFGItems, currentStock, fgShipments, numMonths, itemDesc]);
 
-  // ── 6-month forward projection ────────────────────────────────────────────
-  // Projected months: next 6 calendar months from today
-  const projMonths = useMemo(() => {
-    const today = new Date();
-    return Array.from({ length: 6 }, (_, n) => addMonths(today, n + 1));
+  // ── 26-week forward projection (~6 months, week by week) ─────────────────
+  const projWeeks = useMemo(() => {
+    const start = nextMonday(new Date());
+    return Array.from({ length: 26 }, (_, n) => {
+      const d = new Date(start);
+      d.setDate(d.getDate() + n * 7);
+      return d;
+    });
   }, []);
 
-  const projMonthLabels = projMonths.map(d =>
-    d.toLocaleString('en-US', { month: 'short', year: 'numeric' }));
+  const projWeekLabels = projWeeks.map(weekLabel);
 
-  // For each item × projected month:
-  //   qualifying_stock = lots whose expiry is null (no expiry) OR expiry >= projMonth + 4 months
-  //   net_stock = max(0, qualifying_stock - n * avgDemand)   (n = month index, 0-based)
-  //   coverage = net_stock / avgDemand
+  // Weekly demand = avgMonthlyDemand × 12 / 52
+  // For each item × week:
+  //   qualifying_stock = lots with expiry null OR expiry >= weekStart + 4 months
+  //   consumed = n * weeklyDemand  (weeks 0..n-1 consumed)
+  //   coverage in months = netStock / avgMonthlyDemand
   const projectionRows = useMemo(() => allFGItems.map(item => {
-    const avgDemand = kpiRows.find(r => r.item === item)?.avgDemand || 0;
-    const itemLots  = fgLots.filter(l => l.item === item);
+    const avgDemand   = kpiRows.find(r => r.item === item)?.avgDemand || 0;
+    const weeklyDemand = avgDemand * 12 / 52;
+    const itemLots    = fgLots.filter(l => l.item === item);
 
-    const months = projMonths.map((projDate, n) => {
-      const minExpiry = addMonths(projDate, 4); // need ≥4m shelf life at this point
+    const weeks = projWeeks.map((weekStart, n) => {
+      const minExpiry = addMonths(weekStart, 4);
       const qualifyingStock = itemLots.reduce((s, l) => {
-        // include if no expiry (non-expiring) OR expiry >= minExpiry
         if (l.expiry === null || l.expiry >= minExpiry) return s + l.qty;
         return s;
       }, 0);
-      const consumed   = n * avgDemand; // units consumed in months 0..n-1
-      const netStock   = Math.max(0, qualifyingStock - consumed);
-      const coverage   = avgDemand > 0 ? +(netStock / avgDemand).toFixed(2) : null;
-      return { qualifyingStock: +qualifyingStock.toFixed(0), netStock: +netStock.toFixed(0), coverage };
+      const consumed  = n * weeklyDemand;
+      const netStock  = Math.max(0, qualifyingStock - consumed);
+      const coverage  = avgDemand > 0 ? +(netStock / avgDemand).toFixed(2) : null;
+      return { netStock: +netStock.toFixed(0), coverage };
     });
-    return { item, avgDemand, months };
-  }), [allFGItems, kpiRows, fgLots, projMonths]);
+    return { item, avgDemand, weeklyDemand: +weeklyDemand.toFixed(1), weeks };
+  }), [allFGItems, kpiRows, fgLots, projWeeks]);
 
   // ── Summary counts ────────────────────────────────────────────────────────
   const critical  = kpiRows.filter(r => r.coverage !== null && r.coverage < SS_MIN).length;
@@ -934,7 +968,7 @@ function InventoryFGSS({ data, salesData }) {
         <span>Min: <strong style={{ color: '#ef4444' }}>2.0 months</strong></span>
         <span>Max: <strong style={{ color: '#8b5cf6' }}>3.5 months</strong></span>
         <span>Material Status: <strong style={{ color: '#f1f5f9' }}>Active only</strong></span>
-        <span>Projection: <strong style={{ color: '#f1f5f9' }}>≥4 months shelf life filter · cumulative demand deducted</strong></span>
+        <span>Projection: <strong style={{ color: '#f1f5f9' }}>26 weeks · ≥4 months shelf life filter · cumulative weekly demand deducted</strong></span>
       </div>
 
       {/* Summary pills */}
@@ -1063,43 +1097,46 @@ function InventoryFGSS({ data, salesData }) {
         </table>
       </div>
 
-      {/* ── 6-month forward projection table ──────────────────────────── */}
+      {/* ── 26-week forward projection table ─────────────────────────── */}
       <div style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-        6-month coverage projection
+        26-week coverage projection (calendar week by calendar week)
       </div>
       <div style={{ color: '#64748b', fontSize: 11, marginBottom: 10 }}>
-        Per month: lots with ≥4 months remaining shelf life · minus cumulative demand consumed
+        Per week: lots with ≥4 months remaining shelf life · cumulative weekly demand deducted · coverage shown in months
       </div>
       <div style={{ overflowX: 'auto', marginBottom: 32 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
           <thead>
             <tr style={{ background: '#1e293b' }}>
-              <th style={th2}>Item</th>
-              <th style={th2}>Description</th>
-              <th style={th2}>Avg Demand/m</th>
-              {projMonthLabels.map(m => (
-                <th key={m} style={{ ...th2, whiteSpace: 'nowrap', textAlign: 'center' }}>{m}</th>
+              <th style={{ ...th2, position: 'sticky', left: 0, background: '#1e293b', zIndex: 2 }}>Item</th>
+              <th style={{ ...th2, position: 'sticky', left: 80, background: '#1e293b', zIndex: 2, minWidth: 160 }}>Description</th>
+              <th style={{ ...th2, whiteSpace: 'nowrap' }}>Avg/m</th>
+              <th style={{ ...th2, whiteSpace: 'nowrap' }}>Avg/wk</th>
+              {projWeekLabels.map((lbl, n) => (
+                <th key={n} style={{ ...th2, whiteSpace: 'pre', textAlign: 'center', minWidth: 72, lineHeight: 1.3 }}>{lbl}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {projectionRows.map((r, i) => (
               <tr key={i} style={{ background: i % 2 === 0 ? '#0f172a' : '#1e293b' }}>
-                <td style={{ ...td2, fontWeight: 700 }}>{r.item}</td>
-                <td style={{ ...td2, color: '#94a3b8' }}>{itemDesc[r.item] || ''}</td>
-                <td style={td2}>{r.avgDemand.toLocaleString()}</td>
-                {r.months.map((m, n) => (
-                  <td key={n} style={{ ...td2, textAlign: 'center', padding: '6px 8px' }}>
+                <td style={{ ...td2, fontWeight: 700, position: 'sticky', left: 0, background: i % 2 === 0 ? '#0f172a' : '#1e293b', zIndex: 1 }}>{r.item}</td>
+                <td style={{ ...td2, color: '#94a3b8', position: 'sticky', left: 80, background: i % 2 === 0 ? '#0f172a' : '#1e293b', zIndex: 1, minWidth: 160 }}>{itemDesc[r.item] || ''}</td>
+                <td style={{ ...td2, whiteSpace: 'nowrap' }}>{r.avgDemand.toLocaleString()}</td>
+                <td style={{ ...td2, whiteSpace: 'nowrap' }}>{r.weeklyDemand.toLocaleString()}</td>
+                {r.weeks.map((w, n) => (
+                  <td key={n} style={{ ...td2, textAlign: 'center', padding: '4px 6px' }}>
                     <div style={{
-                      background: m.coverage !== null ? coverageColor(m.coverage) + '22' : '#1e293b',
-                      borderRadius: 6, padding: '4px 8px',
-                      border: `1px solid ${m.coverage !== null ? coverageColor(m.coverage) + '66' : '#334155'}`,
+                      background: w.coverage !== null ? coverageColor(w.coverage) + '22' : 'transparent',
+                      borderRadius: 5, padding: '3px 6px',
+                      border: `1px solid ${w.coverage !== null ? coverageColor(w.coverage) + '55' : '#334155'}`,
+                      minWidth: 60,
                     }}>
-                      <div style={{ color: coverageColor(m.coverage), fontWeight: 700, fontSize: 13 }}>
-                        {m.coverage !== null ? `${m.coverage}m` : '—'}
+                      <div style={{ color: coverageColor(w.coverage), fontWeight: 700, fontSize: 12 }}>
+                        {w.coverage !== null ? `${w.coverage}m` : '—'}
                       </div>
                       <div style={{ color: '#64748b', fontSize: 10 }}>
-                        {m.netStock.toLocaleString()} u
+                        {w.netStock.toLocaleString()} u
                       </div>
                     </div>
                   </td>
