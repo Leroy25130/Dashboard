@@ -750,23 +750,24 @@ function ComponentsAtRisk({ data }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 // ── Inventory FG Safety Stock ────────────────────────────────────────────────
-const SS_TARGET   = 2.5;
-const SS_MIN      = 2.0;
-const SS_MAX      = 3.5;
+const SS_GREEN_MIN = 2.0;
+const SS_GREEN_MAX = 2.5;
+const SS_ORA_LOW   = 1.5;
+const SS_ORA_HIGH  = 3.0;
 
 function coverageColor(c) {
   if (c === null || c === undefined) return '#64748b';
-  if (c < SS_MIN)  return '#ef4444'; // critical
-  if (c < SS_TARGET) return '#f59e0b'; // below target
-  if (c <= SS_MAX) return '#10b981'; // on target
-  return '#8b5cf6'; // excess
+  if (c >= SS_GREEN_MIN && c <= SS_GREEN_MAX) return '#10b981'; // green
+  if (c >= SS_ORA_LOW   && c <  SS_GREEN_MIN) return '#f59e0b'; // orange low
+  if (c >  SS_GREEN_MAX && c <= SS_ORA_HIGH)  return '#f59e0b'; // orange high
+  return '#ef4444'; // red
 }
 function coverageStatus(c) {
   if (c === null || c === undefined) return '—';
-  if (c < SS_MIN)    return '🔴 Critical';
-  if (c < SS_TARGET) return '🟡 Below target';
-  if (c <= SS_MAX)   return '🟢 On target';
-  return '🟣 Excess';
+  if (c >= SS_GREEN_MIN && c <= SS_GREEN_MAX) return '🟢 On target';
+  if (c >= SS_ORA_LOW   && c <  SS_GREEN_MIN) return '🟡 Below target';
+  if (c >  SS_GREEN_MAX && c <= SS_ORA_HIGH)  return '🟡 Above target';
+  return '🔴 Critical';
 }
 
 function toISOInv(d) { return d?.replace(/\//g, '-'); }
@@ -992,10 +993,10 @@ function InventoryFGSS({ data, salesData, psiData }) {
   }), [allFGItems, kpiRows, fgLots, projWeeks]);
 
   // ── Summary counts ────────────────────────────────────────────────────────
-  const critical  = kpiRows.filter(r => r.coverage !== null && r.coverage < SS_MIN).length;
-  const belowTgt  = kpiRows.filter(r => r.coverage !== null && r.coverage >= SS_MIN && r.coverage < SS_TARGET).length;
-  const onTarget  = kpiRows.filter(r => r.coverage !== null && r.coverage >= SS_TARGET && r.coverage <= SS_MAX).length;
-  const excess    = kpiRows.filter(r => r.coverage !== null && r.coverage > SS_MAX).length;
+  const critical  = kpiRows.filter(r => r.coverage !== null && (r.coverage < SS_ORA_LOW || r.coverage > SS_ORA_HIGH)).length;
+  const belowTgt  = kpiRows.filter(r => r.coverage !== null && r.coverage >= SS_ORA_LOW && r.coverage < SS_GREEN_MIN).length;
+  const onTarget  = kpiRows.filter(r => r.coverage !== null && r.coverage >= SS_GREEN_MIN && r.coverage <= SS_GREEN_MAX).length;
+  const excess    = kpiRows.filter(r => r.coverage !== null && r.coverage > SS_GREEN_MAX && r.coverage <= SS_ORA_HIGH).length;
   const noData    = kpiRows.filter(r => r.coverage === null).length;
   const chartRows = kpiRows.filter(r => r.avgDemand > 0).sort((a, b) => (a.coverage ?? 999) - (b.coverage ?? 999));
 
@@ -1016,8 +1017,9 @@ function InventoryFGSS({ data, salesData, psiData }) {
 
       {/* Info band */}
       <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 12, color: '#64748b', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-        <span>Target: <strong style={{ color: '#10b981' }}>2.5 months</strong></span>
-        <span>Min: <strong style={{ color: '#ef4444' }}>2.0 months</strong></span>
+        <span>Green: <strong style={{ color: '#10b981' }}>2–2.5 months</strong></span>
+        <span>Orange: <strong style={{ color: '#f59e0b' }}>1.5–2 or 2.5–3 months</strong></span>
+        <span>Red: <strong style={{ color: '#ef4444' }}>&lt; 1.5 or &gt; 3 months</strong></span>
         <span>Max: <strong style={{ color: '#8b5cf6' }}>3.5 months</strong></span>
         <span>Material Status: <strong style={{ color: '#f1f5f9' }}>Active only</strong></span>
         <span>Projection: <strong style={{ color: '#f1f5f9' }}>26 weeks · DCNTL stock + WIP releases (W40 plan, CW40–CW1 2027) · ≥{shelfLifeMonths}m shelf life · cumulative demand deducted</strong></span>
@@ -1025,10 +1027,10 @@ function InventoryFGSS({ data, salesData, psiData }) {
 
       {/* Summary pills */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <Pill label="Critical < 2 months"   value={critical}  color="#ef4444" />
-        <Pill label="Below target 2–2.5 m"  value={belowTgt}  color="#f59e0b" />
-        <Pill label="On target 2.5–3.5 m"   value={onTarget}  color="#10b981" />
-        <Pill label="Excess > 3.5 months"   value={excess}    color="#8b5cf6" />
+        <Pill label="Critical (< 1.5m or > 3m)" value={critical}  color="#ef4444" />
+        <Pill label="Low 1.5–2 m"             value={belowTgt}  color="#f59e0b" />
+        <Pill label="On target 2–2.5 m"       value={onTarget}  color="#10b981" />
+        <Pill label="High 2.5–3 m"            value={excess}    color="#f59e0b" />
         {noData > 0 && <Pill label="No demand data" value={noData} color="#475569" />}
       </div>
 
