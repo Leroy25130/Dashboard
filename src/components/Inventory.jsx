@@ -771,10 +771,19 @@ function coverageStatus(c) {
 
 function toISOInv(d) { return d?.replace(/\//g, '-'); }
 
-function InventoryFGSS({ data, salesData }) {
-  const [ssMonths, setSsMonths] = useState(new Set());
+function addMonths(date, n) {
+  const d = new Date(date);
+  d.setMonth(d.getMonth() + n);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
 
-  // ── Available months from sales data ────────────────────────────────────
+function InventoryFGSS({ data, salesData }) {
+  // ── State ────────────────────────────────────────────────────────────────
+  const [ssMonths,        setSsMonths]        = useState(new Set());
+
+  // ── Available demand months from sales data ───────────────────────────────
   const availableMonths = useMemo(() => {
     const ms = new Set();
     (salesData || []).forEach(r => {
@@ -784,39 +793,55 @@ function InventoryFGSS({ data, salesData }) {
     return sortedMonths([...ms]);
   }, [salesData]);
 
-  // Last 6 complete months (exclude the current, potentially partial, month)
-  const currentMonthLabel = new Date().toLocaleString('en-US', { month: 'short', year: 'numeric' });
-  const last6Complete = useMemo(() =>
-    availableMonths.filter(m => m !== currentMonthLabel).slice(-6),
-    [availableMonths, currentMonthLabel]);
+  // Default: all months from Jan 2026 onward (user can override manually)
+  const defaultDemandMonths = useMemo(() =>
+    availableMonths.filter(m => {
+      const yr = parseInt(m.split(' ')[1] || '0');
+      const mo = m.split(' ')[0];
+      if (yr > 2026) return true;
+      if (yr === 2026) return true; // all 2026 months
+      return false;
+    }).filter(m => {
+      // exclude current partial month
+      const cur = new Date().toLocaleString('en-US', { month: 'short', year: 'numeric' });
+      return m !== cur;
+    }),
+    [availableMonths]);
 
-  const effectiveMonths = ssMonths.size > 0 ? [...ssMonths] : last6Complete;
+  const effectiveMonths = ssMonths.size > 0 ? [...ssMonths] : defaultDemandMonths;
   const numMonths = effectiveMonths.length;
 
-  // ── Current stock at DCNTL per FG item ───────────────────────────────────
-  const dcntlStock = useMemo(() => {
+  // ── Lot-level FG inventory at selected locations (Active only) ────────────
+  const fgLots = useMemo(() =>
+    (data || []).filter(r =>
+      FG_CODES.has(r['Item']) &&
+      r['Subinventory'] === 'DCNTL' &&
+      r['Material Status'] === 'Active'
+    ).map(r => ({
+      item:   r['Item'],
+      qty:    Number(r['Quantity']) || 0,
+      expiry: r['Expiration Date'] ? new Date(r['Expiration Date']) : null,
+    })),
+    [data]);
+
+  // Current total stock per FG item (no shelf-life filter — today's snapshot)
+  const currentStock = useMemo(() => {
     const map = {};
-    (data || []).filter(r => r['Subinventory'] === 'DCNTL' && FG_CODES.has(r['Item']) && r['Material Status'] === 'Active').forEach(r => {
-      map[r['Item']] = (map[r['Item']] || 0) + (Number(r['Quantity']) || 0);
-    });
+    fgLots.forEach(l => { map[l.item] = (map[l.item] || 0) + l.qty; });
     return map;
-  }, [data]);
+  }, [fgLots]);
 
   // Item descriptions
   const itemDesc = useMemo(() => {
     const map = {};
-    (data || []).forEach(r => {
-      if (r['Item'] && r['Item Description'] && !map[r['Item']]) map[r['Item']] = r['Item Description'];
-    });
-    (salesData || []).forEach(r => {
-      if (r['Item'] && r['Description'] && !map[r['Item']]) map[r['Item']] = r['Description'];
-    });
+    (data || []).forEach(r => { if (r['Item'] && r['Item Description'] && !map[r['Item']]) map[r['Item']] = r['Item Description']; });
+    (salesData || []).forEach(r => { if (r['Item'] && r['Description'] && !map[r['Item']]) map[r['Item']] = r['Description']; });
     return map;
   }, [data, salesData]);
 
-  // ── Monthly shipments per FG item (within effective months) ──────────────
+  // ── Monthly shipments per FG item (within effective demand months) ─────────
   const fgShipments = useMemo(() => {
-    const map = {}; // item -> { total, byMonth }
+    const map = {};
     const monthSet = new Set(effectiveMonths);
     (salesData || []).forEach(r => {
       if (!FG_CODES.has(r['Item'])) return;
@@ -831,30 +856,64 @@ function InventoryFGSS({ data, salesData }) {
     return map;
   }, [salesData, effectiveMonths]);
 
-  // ── KPI rows (all FG items that appear in DCNTL or have shipments) ────────
+  // ── All FG items ──────────────────────────────────────────────────────────
   const allFGItems = useMemo(() => {
-    const s = new Set([...Object.keys(dcntlStock), ...Object.keys(fgShipments)]);
+    const s = new Set([...Object.keys(currentStock), ...Object.keys(fgShipments)]);
     return [...s].filter(i => FG_CODES.has(i)).sort();
-  }, [dcntlStock, fgShipments]);
+  }, [currentStock, fgShipments]);
 
+  // ── Current-state KPI rows ────────────────────────────────────────────────
   const kpiRows = useMemo(() => allFGItems.map(item => {
-    const stock      = dcntlStock[item] || 0;
-    const total      = fgShipments[item]?.total || 0;
-    const avgDemand  = numMonths > 0 ? total / numMonths : 0;
-    const ssTarget   = +(avgDemand * SS_TARGET).toFixed(0);
-    const coverage   = avgDemand > 0 ? +(stock / avgDemand).toFixed(2) : null;
+    const stock     = currentStock[item] || 0;
+    const total     = fgShipments[item]?.total || 0;
+    const avgDemand = numMonths > 0 ? total / numMonths : 0;
+    const ssTarget  = +(avgDemand * SS_TARGET).toFixed(0);
+    const coverage  = avgDemand > 0 ? +(stock / avgDemand).toFixed(2) : null;
     return { item, desc: itemDesc[item] || '', stock, avgDemand: +avgDemand.toFixed(1), ssTarget, coverage, byMonth: fgShipments[item]?.byMonth || {} };
-  }), [allFGItems, dcntlStock, fgShipments, numMonths, itemDesc]);
+  }), [allFGItems, currentStock, fgShipments, numMonths, itemDesc]);
 
-  const critical   = kpiRows.filter(r => r.coverage !== null && r.coverage < SS_MIN).length;
-  const belowTgt   = kpiRows.filter(r => r.coverage !== null && r.coverage >= SS_MIN && r.coverage < SS_TARGET).length;
-  const onTarget   = kpiRows.filter(r => r.coverage !== null && r.coverage >= SS_TARGET && r.coverage <= SS_MAX).length;
-  const excess     = kpiRows.filter(r => r.coverage !== null && r.coverage > SS_MAX).length;
-  const noData     = kpiRows.filter(r => r.coverage === null).length;
+  // ── 6-month forward projection ────────────────────────────────────────────
+  // Projected months: next 6 calendar months from today
+  const projMonths = useMemo(() => {
+    const today = new Date();
+    return Array.from({ length: 6 }, (_, n) => addMonths(today, n + 1));
+  }, []);
 
-  const chartRows  = kpiRows.filter(r => r.avgDemand > 0).sort((a, b) => (a.coverage ?? 999) - (b.coverage ?? 999));
+  const projMonthLabels = projMonths.map(d =>
+    d.toLocaleString('en-US', { month: 'short', year: 'numeric' }));
 
-  // Monthly shipment chart data per effective month
+  // For each item × projected month:
+  //   qualifying_stock = lots whose expiry is null (no expiry) OR expiry >= projMonth + 4 months
+  //   net_stock = max(0, qualifying_stock - n * avgDemand)   (n = month index, 0-based)
+  //   coverage = net_stock / avgDemand
+  const projectionRows = useMemo(() => allFGItems.map(item => {
+    const avgDemand = kpiRows.find(r => r.item === item)?.avgDemand || 0;
+    const itemLots  = fgLots.filter(l => l.item === item);
+
+    const months = projMonths.map((projDate, n) => {
+      const minExpiry = addMonths(projDate, 4); // need ≥4m shelf life at this point
+      const qualifyingStock = itemLots.reduce((s, l) => {
+        // include if no expiry (non-expiring) OR expiry >= minExpiry
+        if (l.expiry === null || l.expiry >= minExpiry) return s + l.qty;
+        return s;
+      }, 0);
+      const consumed   = n * avgDemand; // units consumed in months 0..n-1
+      const netStock   = Math.max(0, qualifyingStock - consumed);
+      const coverage   = avgDemand > 0 ? +(netStock / avgDemand).toFixed(2) : null;
+      return { qualifyingStock: +qualifyingStock.toFixed(0), netStock: +netStock.toFixed(0), coverage };
+    });
+    return { item, avgDemand, months };
+  }), [allFGItems, kpiRows, fgLots, projMonths]);
+
+  // ── Summary counts ────────────────────────────────────────────────────────
+  const critical  = kpiRows.filter(r => r.coverage !== null && r.coverage < SS_MIN).length;
+  const belowTgt  = kpiRows.filter(r => r.coverage !== null && r.coverage >= SS_MIN && r.coverage < SS_TARGET).length;
+  const onTarget  = kpiRows.filter(r => r.coverage !== null && r.coverage >= SS_TARGET && r.coverage <= SS_MAX).length;
+  const excess    = kpiRows.filter(r => r.coverage !== null && r.coverage > SS_MAX).length;
+  const noData    = kpiRows.filter(r => r.coverage === null).length;
+  const chartRows = kpiRows.filter(r => r.avgDemand > 0).sort((a, b) => (a.coverage ?? 999) - (b.coverage ?? 999));
+
+  // ── Monthly demand chart data ─────────────────────────────────────────────
   const demandChartData = useMemo(() => effectiveMonths.map(m => {
     const row = { month: m };
     allFGItems.forEach(item => { row[item] = fgShipments[item]?.byMonth[m] || 0; });
@@ -871,46 +930,54 @@ function InventoryFGSS({ data, salesData }) {
 
       {/* Info band */}
       <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 12, color: '#64748b', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-        <span>Target: <strong style={{ color: '#10b981' }}>2.5 months</strong> coverage</span>
+        <span>Target: <strong style={{ color: '#10b981' }}>2.5 months</strong></span>
         <span>Min: <strong style={{ color: '#ef4444' }}>2.0 months</strong></span>
         <span>Max: <strong style={{ color: '#8b5cf6' }}>3.5 months</strong></span>
-        <span>Stock location: <strong style={{ color: '#f1f5f9' }}>DCNTL</strong> · Material Status: <strong style={{ color: '#f1f5f9' }}>Active only</strong></span>
-        <span>Period: <strong style={{ color: '#f1f5f9' }}>{numMonths} month{numMonths !== 1 ? 's' : ''}</strong>
-          {ssMonths.size === 0 && <span style={{ color: '#475569' }}> (default: last 6 complete)</span>}
-        </span>
+        <span>Material Status: <strong style={{ color: '#f1f5f9' }}>Active only</strong></span>
+        <span>Projection: <strong style={{ color: '#f1f5f9' }}>≥4 months shelf life filter · cumulative demand deducted</strong></span>
       </div>
 
       {/* Summary pills */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <Pill label="Critical < 2 months"    value={critical}  color="#ef4444" />
-        <Pill label="Below target 2–2.5 m"   value={belowTgt}  color="#f59e0b" />
-        <Pill label="On target 2.5–3.5 m"    value={onTarget}  color="#10b981" />
-        <Pill label="Excess > 3.5 months"    value={excess}    color="#8b5cf6" />
+        <Pill label="Critical < 2 months"   value={critical}  color="#ef4444" />
+        <Pill label="Below target 2–2.5 m"  value={belowTgt}  color="#f59e0b" />
+        <Pill label="On target 2.5–3.5 m"   value={onTarget}  color="#10b981" />
+        <Pill label="Excess > 3.5 months"   value={excess}    color="#8b5cf6" />
         {noData > 0 && <Pill label="No demand data" value={noData} color="#475569" />}
       </div>
 
-      {/* Month selector */}
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
-        <MultiSelect
-          options={availableMonths}
-          selected={ssMonths}
-          onChange={setSsMonths}
-          label="Shipment months:"
-          allLabel="Default (last 6 complete)"
-          minWidth={220}
-        />
-        {ssMonths.size > 0 && (
-          <button onClick={() => setSsMonths(new Set())} style={clearBtn}>Reset to default</button>
-        )}
-        <div style={{ color: '#64748b', fontSize: 12 }}>
-          {effectiveMonths.join(' · ')}
+      {/* ── Controls ────────────────────────────────────────────────────── */}
+      <div style={{ background: '#1e293b', borderRadius: 10, padding: '14px 18px', marginBottom: 20, display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+
+        {/* Location toggle */}
+        {/* Demand month selector */}
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+            Avg Monthly Demand — months used for calculation
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <MultiSelect
+              options={availableMonths}
+              selected={ssMonths}
+              onChange={setSsMonths}
+              label=""
+              allLabel="Default (Jan 2026 → present)"
+              minWidth={240}
+            />
+            {ssMonths.size > 0 && (
+              <button onClick={() => setSsMonths(new Set())} style={clearBtn}>Reset to default</button>
+            )}
+          </div>
+          <div style={{ color: '#64748b', fontSize: 11, marginTop: 6 }}>
+            {numMonths} month{numMonths !== 1 ? 's' : ''}: {effectiveMonths.join(' · ')}
+          </div>
         </div>
       </div>
 
       {/* ── Coverage bar chart ─────────────────────────────────────────── */}
       <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
         <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>
-          Coverage (months) = DCNTL stock ÷ avg monthly demand · reference lines at 2.0 / 2.5 / 3.5 months
+          Current coverage = DCNTL Active stock ÷ avg monthly demand
         </div>
         <ResponsiveContainer width="100%" height={Math.max(280, chartRows.length * 40)}>
           <BarChart layout="vertical" data={chartRows} margin={{ top: 16, right: 90, bottom: 4, left: 84 }}>
@@ -918,20 +985,16 @@ function InventoryFGSS({ data, salesData }) {
             <XAxis type="number" domain={[0, 'auto']} tick={{ fill: '#94a3b8', fontSize: 11 }} unit="m" />
             <YAxis type="category" dataKey="item" tick={{ fill: '#e2e8f0', fontSize: 12 }} width={80} />
             <Tooltip
-              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }}
-              labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
               content={({ payload, label }) => payload?.length ? (
                 <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
                   <div style={{ color: '#f1f5f9', fontWeight: 700, marginBottom: 4 }}>{label}</div>
                   <div style={{ color: '#94a3b8' }}>{payload[0]?.payload?.desc}</div>
-                  <div style={{ marginTop: 6 }}>
-                    <span style={{ color: coverageColor(payload[0]?.payload?.coverage), fontWeight: 700 }}>
-                      {payload[0]?.payload?.coverage !== null ? `${payload[0].payload.coverage}m coverage` : 'No demand'}
-                    </span>
+                  <div style={{ marginTop: 6, color: coverageColor(payload[0]?.payload?.coverage), fontWeight: 700 }}>
+                    {payload[0]?.payload?.coverage !== null ? `${payload[0].payload.coverage}m coverage` : 'No demand'}
                   </div>
                   <div style={{ color: '#94a3b8', marginTop: 2 }}>Stock: {payload[0]?.payload?.stock?.toLocaleString()}</div>
                   <div style={{ color: '#94a3b8' }}>Avg demand: {payload[0]?.payload?.avgDemand?.toLocaleString()}/month</div>
-                  <div style={{ color: '#94a3b8' }}>SS target (2.5×): {payload[0]?.payload?.ssTarget?.toLocaleString()}</div>
+                  <div style={{ color: '#94a3b8' }}>SS target (×2.5): {payload[0]?.payload?.ssTarget?.toLocaleString()}</div>
                 </div>
               ) : null}
             />
@@ -948,7 +1011,7 @@ function InventoryFGSS({ data, salesData }) {
 
       {/* ── Monthly demand chart ───────────────────────────────────────── */}
       <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-        <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>Monthly shipments by FG item over selected period</div>
+        <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>Monthly shipments by FG item — demand period selected</div>
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={demandChartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -963,12 +1026,15 @@ function InventoryFGSS({ data, salesData }) {
         </ResponsiveContainer>
       </div>
 
-      {/* ── Detail table ───────────────────────────────────────────────── */}
+      {/* ── Current snapshot table ─────────────────────────────────────── */}
+      <div style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+        Current snapshot — DCNTL Active stock
+      </div>
       <div style={{ overflowX: 'auto', marginBottom: 32 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#1e293b' }}>
-              {['Item','Description','Current Stock (DCNTL)','Avg Monthly Demand','SS Target (×2.5)','Coverage (months)','Status'].map(h => (
+              {['Item','Description','Current Stock','Avg Monthly Demand','SS Target (×2.5)','Coverage','Status'].map(h => (
                 <th key={h} style={th2}>{h}</th>
               ))}
               {effectiveMonths.map(m => <th key={m} style={{ ...th2, whiteSpace: 'nowrap' }}>{m}</th>)}
@@ -978,7 +1044,7 @@ function InventoryFGSS({ data, salesData }) {
             {kpiRows.map((r, i) => (
               <tr key={i} style={{ background: i % 2 === 0 ? '#0f172a' : '#1e293b' }}>
                 <td style={{ ...td2, fontWeight: 700 }}>{r.item}</td>
-                <td style={{ ...td2, color: '#94a3b8', maxWidth: 200 }}>{r.desc}</td>
+                <td style={{ ...td2, color: '#94a3b8' }}>{r.desc}</td>
                 <td style={{ ...td2, fontWeight: 700, color: '#f1f5f9' }}>{r.stock.toLocaleString()}</td>
                 <td style={td2}>{r.avgDemand.toLocaleString()}</td>
                 <td style={td2}>{r.ssTarget.toLocaleString()}</td>
@@ -989,6 +1055,53 @@ function InventoryFGSS({ data, salesData }) {
                 {effectiveMonths.map(m => (
                   <td key={m} style={{ ...td2, textAlign: 'right', color: r.byMonth[m] ? '#e2e8f0' : '#475569' }}>
                     {(r.byMonth[m] || 0).toLocaleString()}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── 6-month forward projection table ──────────────────────────── */}
+      <div style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+        6-month coverage projection
+      </div>
+      <div style={{ color: '#64748b', fontSize: 11, marginBottom: 10 }}>
+        Per month: lots with ≥4 months remaining shelf life · minus cumulative demand consumed
+      </div>
+      <div style={{ overflowX: 'auto', marginBottom: 32 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#1e293b' }}>
+              <th style={th2}>Item</th>
+              <th style={th2}>Description</th>
+              <th style={th2}>Avg Demand/m</th>
+              {projMonthLabels.map(m => (
+                <th key={m} style={{ ...th2, whiteSpace: 'nowrap', textAlign: 'center' }}>{m}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {projectionRows.map((r, i) => (
+              <tr key={i} style={{ background: i % 2 === 0 ? '#0f172a' : '#1e293b' }}>
+                <td style={{ ...td2, fontWeight: 700 }}>{r.item}</td>
+                <td style={{ ...td2, color: '#94a3b8' }}>{itemDesc[r.item] || ''}</td>
+                <td style={td2}>{r.avgDemand.toLocaleString()}</td>
+                {r.months.map((m, n) => (
+                  <td key={n} style={{ ...td2, textAlign: 'center', padding: '6px 8px' }}>
+                    <div style={{
+                      background: m.coverage !== null ? coverageColor(m.coverage) + '22' : '#1e293b',
+                      borderRadius: 6, padding: '4px 8px',
+                      border: `1px solid ${m.coverage !== null ? coverageColor(m.coverage) + '66' : '#334155'}`,
+                    }}>
+                      <div style={{ color: coverageColor(m.coverage), fontWeight: 700, fontSize: 13 }}>
+                        {m.coverage !== null ? `${m.coverage}m` : '—'}
+                      </div>
+                      <div style={{ color: '#64748b', fontSize: 10 }}>
+                        {m.netStock.toLocaleString()} u
+                      </div>
+                    </div>
                   </td>
                 ))}
               </tr>
