@@ -771,6 +771,23 @@ function coverageStatus(c) {
 
 function toISOInv(d) { return d?.replace(/\//g, '-'); }
 
+// WIP planned releases per item, keyed by ISO date of the week's Monday (CW40–CW1 2027)
+// Source: PSI high level sheet, TVT Planning review W39 2026
+const WIP_RELEASES = {
+  "810081":   {"2026-09-28":842,"2026-10-05":0,"2026-10-12":0,"2026-10-19":0,"2026-10-26":0,"2026-11-02":0,"2026-11-09":0,"2026-11-16":0,"2026-11-23":0,"2026-11-30":416,"2026-12-07":0,"2026-12-14":0,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+  "810081L":  {"2026-09-28":0,"2026-10-05":0,"2026-10-12":0,"2026-10-19":0,"2026-10-26":700,"2026-11-02":0,"2026-11-09":0,"2026-11-16":0,"2026-11-23":416,"2026-11-30":0,"2026-12-07":700,"2026-12-14":0,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+  "TVTRL":    {"2026-09-28":700,"2026-10-05":700,"2026-10-12":1410,"2026-10-19":700,"2026-10-26":700,"2026-11-02":0,"2026-11-09":1268,"2026-11-16":0,"2026-11-23":1268,"2026-11-30":558,"2026-12-07":842,"2026-12-14":842,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+  "TVTOML":   {"2026-09-28":0,"2026-10-05":710,"2026-10-12":0,"2026-10-19":710,"2026-10-26":0,"2026-11-02":0,"2026-11-09":426,"2026-11-16":0,"2026-11-23":0,"2026-11-30":710,"2026-12-07":0,"2026-12-14":710,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+  "810051":   {"2026-09-28":0,"2026-10-05":0,"2026-10-12":0,"2026-10-19":0,"2026-10-26":0,"2026-11-02":0,"2026-11-09":0,"2026-11-16":0,"2026-11-23":0,"2026-11-30":0,"2026-12-07":0,"2026-12-14":0,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+  "810061":   {"2026-09-28":0,"2026-10-05":0,"2026-10-12":0,"2026-10-19":0,"2026-10-26":0,"2026-11-02":0,"2026-11-09":0,"2026-11-16":0,"2026-11-23":0,"2026-11-30":0,"2026-12-07":0,"2026-12-14":0,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+  "810041A":  {"2026-09-28":0,"2026-10-05":0,"2026-10-12":0,"2026-10-19":0,"2026-10-26":0,"2026-11-02":0,"2026-11-09":0,"2026-11-16":0,"2026-11-23":0,"2026-11-30":0,"2026-12-07":0,"2026-12-14":0,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+  "810041B":  {"2026-09-28":0,"2026-10-05":723,"2026-10-12":0,"2026-10-19":0,"2026-10-26":0,"2026-11-02":0,"2026-11-09":0,"2026-11-16":0,"2026-11-23":0,"2026-11-30":0,"2026-12-07":0,"2026-12-14":0,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+  "830041B":  {"2026-09-28":0,"2026-10-05":0,"2026-10-12":0,"2026-10-19":0,"2026-10-26":0,"2026-11-02":0,"2026-11-09":0,"2026-11-16":0,"2026-11-23":0,"2026-11-30":0,"2026-12-07":0,"2026-12-14":0,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+  "810041BL": {"2026-09-28":0,"2026-10-05":0,"2026-10-12":0,"2026-10-19":0,"2026-10-26":723,"2026-11-02":0,"2026-11-09":0,"2026-11-16":0,"2026-11-23":0,"2026-11-30":0,"2026-12-07":0,"2026-12-14":0,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+  "830041BL": {"2026-09-28":0,"2026-10-05":0,"2026-10-12":0,"2026-10-19":0,"2026-10-26":0,"2026-11-02":0,"2026-11-09":0,"2026-11-16":0,"2026-11-23":0,"2026-11-30":0,"2026-12-07":0,"2026-12-14":0,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+  "830041":   {"2026-09-28":0,"2026-10-05":0,"2026-10-12":0,"2026-10-19":0,"2026-10-26":0,"2026-11-02":0,"2026-11-09":0,"2026-11-16":0,"2026-11-23":0,"2026-11-30":0,"2026-12-07":0,"2026-12-14":0,"2026-12-21":0,"2026-12-28":0,"2027-01-04":0},
+};
+
 function addMonths(date, n) {
   const d = new Date(date);
   d.setMonth(d.getMonth() + n);
@@ -779,11 +796,11 @@ function addMonths(date, n) {
   return d;
 }
 
-function nextMonday(from) {
+function thisOrNextMonday(from) {
   const d = new Date(from);
   d.setHours(0, 0, 0, 0);
   const day = d.getDay(); // 0=Sun,1=Mon,...
-  const diff = day === 1 ? 7 : (8 - day) % 7 || 7;
+  const diff = day === 1 ? 0 : (8 - day) % 7 || 7; // 0 if already Monday
   d.setDate(d.getDate() + diff);
   return d;
 }
@@ -905,7 +922,7 @@ function InventoryFGSS({ data, salesData }) {
 
   // ── 26-week forward projection (~6 months, week by week) ─────────────────
   const projWeeks = useMemo(() => {
-    const start = nextMonday(new Date());
+    const start = thisOrNextMonday(new Date());
     return Array.from({ length: 26 }, (_, n) => {
       const d = new Date(start);
       d.setDate(d.getDate() + n * 7);
@@ -917,13 +934,15 @@ function InventoryFGSS({ data, salesData }) {
 
   // Weekly demand = avgMonthlyDemand × 12 / 52
   // For each item × week:
-  //   qualifying_stock = lots with expiry null OR expiry >= weekStart + 4 months
-  //   consumed = n * weeklyDemand  (weeks 0..n-1 consumed)
+  //   qualifying_stock = DCNTL lots with expiry null OR expiry >= weekStart + 4 months
+  //   cumulativeWIP    = sum of WIP releases up to and including this week
+  //   consumed         = n * weeklyDemand  (weeks 0..n-1 consumed)
   //   coverage in months = netStock / avgMonthlyDemand
   const projectionRows = useMemo(() => allFGItems.map(item => {
-    const avgDemand   = kpiRows.find(r => r.item === item)?.avgDemand || 0;
+    const avgDemand    = kpiRows.find(r => r.item === item)?.avgDemand || 0;
     const weeklyDemand = avgDemand * 12 / 52;
-    const itemLots    = fgLots.filter(l => l.item === item);
+    const itemLots     = fgLots.filter(l => l.item === item);
+    const itemWIP      = WIP_RELEASES[item] || {};
 
     const weeks = projWeeks.map((weekStart, n) => {
       const minExpiry = addMonths(weekStart, 4);
@@ -931,10 +950,16 @@ function InventoryFGSS({ data, salesData }) {
         if (l.expiry === null || l.expiry >= minExpiry) return s + l.qty;
         return s;
       }, 0);
+      // WIP: cumulative releases up to this week that also pass shelf-life (no expiry assumed for WIP)
+      const weekDateStr = weekStart.toISOString().slice(0, 10);
+      const wipThisWeek = itemWIP[weekDateStr] || 0;
+      const cumulativeWIP = Object.entries(itemWIP)
+        .filter(([date]) => date <= weekDateStr)
+        .reduce((s, [, qty]) => s + qty, 0);
       const consumed  = n * weeklyDemand;
-      const netStock  = Math.max(0, qualifyingStock - consumed);
+      const netStock  = Math.max(0, qualifyingStock + cumulativeWIP - consumed);
       const coverage  = avgDemand > 0 ? +(netStock / avgDemand).toFixed(2) : null;
-      return { netStock: +netStock.toFixed(0), coverage };
+      return { netStock: +netStock.toFixed(0), coverage, wipThisWeek };
     });
     return { item, avgDemand, weeklyDemand: +weeklyDemand.toFixed(1), weeks };
   }), [allFGItems, kpiRows, fgLots, projWeeks]);
@@ -968,7 +993,7 @@ function InventoryFGSS({ data, salesData }) {
         <span>Min: <strong style={{ color: '#ef4444' }}>2.0 months</strong></span>
         <span>Max: <strong style={{ color: '#8b5cf6' }}>3.5 months</strong></span>
         <span>Material Status: <strong style={{ color: '#f1f5f9' }}>Active only</strong></span>
-        <span>Projection: <strong style={{ color: '#f1f5f9' }}>26 weeks · ≥4 months shelf life filter · cumulative weekly demand deducted</strong></span>
+        <span>Projection: <strong style={{ color: '#f1f5f9' }}>26 weeks · DCNTL stock + WIP releases (CW40–CW1 2027) · ≥4m shelf life · cumulative demand deducted</strong></span>
       </div>
 
       {/* Summary pills */}
@@ -1102,7 +1127,7 @@ function InventoryFGSS({ data, salesData }) {
         26-week coverage projection (calendar week by calendar week)
       </div>
       <div style={{ color: '#64748b', fontSize: 11, marginBottom: 10 }}>
-        Per week: lots with ≥4 months remaining shelf life · cumulative weekly demand deducted · coverage shown in months
+        Per week: DCNTL stock (≥4m shelf life) + cumulative WIP releases · minus cumulative weekly demand · coverage in months · <span style={{ color: '#34d399' }}>green = WIP arriving that week</span>
       </div>
       <div style={{ overflowX: 'auto', marginBottom: 32 }}>
         <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
@@ -1138,6 +1163,11 @@ function InventoryFGSS({ data, salesData }) {
                       <div style={{ color: '#64748b', fontSize: 10 }}>
                         {w.netStock.toLocaleString()} u
                       </div>
+                      {w.wipThisWeek > 0 && (
+                        <div style={{ color: '#34d399', fontSize: 10, fontWeight: 600 }}>
+                          +{w.wipThisWeek.toLocaleString()} WIP
+                        </div>
+                      )}
                     </div>
                   </td>
                 ))}
