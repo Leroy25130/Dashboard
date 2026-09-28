@@ -867,7 +867,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
   const fgLots = useMemo(() =>
     (data || []).filter(r =>
       FG_CODES.has(r['Item']) &&
-      r['Subinventory'] === 'DCNTL' &&
+      (r['Subinventory'] === 'DCNTL' || r['Subinventory'] === 'EQABE') &&
       r['Material Status'] === 'Active'
     ).map(r => ({
       item:   r['Item'],
@@ -1023,7 +1023,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
         <span>Orange: <strong style={{ color: '#f59e0b' }}>1.5–2 or 2.5–3 months</strong></span>
         <span>Purple: <strong style={{ color: '#8b5cf6' }}>&lt; 1.5 or &gt; 3 months</strong></span>
         <span>Material Status: <strong style={{ color: '#f1f5f9' }}>Active only</strong></span>
-        <span>Projection: <strong style={{ color: '#f1f5f9' }}>26 weeks · DCNTL stock + WIP releases (W40 plan, CW40–CW1 2027) · ≥{shelfLifeMonths}m shelf life · cumulative demand deducted</strong></span>
+        <span>Projection: <strong style={{ color: '#f1f5f9' }}>26 weeks · DCNTL + EQABE stock + WIP releases (W40 plan, CW40–CW1 2027) · ≥{shelfLifeMonths}m shelf life · cumulative demand deducted</strong></span>
       </div>
 
       {/* Summary pills */}
@@ -1065,7 +1065,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
       {/* ── Coverage bar chart ─────────────────────────────────────────── */}
       <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 16 }}>
         <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>
-          Current coverage = DCNTL Active stock ÷ avg monthly demand
+          Current coverage = DCNTL + EQABE Active stock ÷ avg monthly demand
         </div>
         <ResponsiveContainer width="100%" height={Math.max(280, chartRows.length * 40)}>
           <BarChart layout="vertical" data={chartRows} margin={{ top: 16, right: 90, bottom: 4, left: 84 }}>
@@ -1117,7 +1117,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
 
       {/* ── Current snapshot table ─────────────────────────────────────── */}
       <div style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
-        Current snapshot — DCNTL Active stock
+        Current snapshot — DCNTL + EQABE Active stock
       </div>
       <div style={{ overflowX: 'auto', marginBottom: 32 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
