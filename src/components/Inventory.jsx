@@ -1012,7 +1012,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
 
   return (
     <div id="inv-fgss">
-      <SectionHeader title="Inventory FG Safety Stock" icon="📊" />
+      <SectionHeader title="FG Coverage" icon="📊" />
 
       {/* Info band */}
       <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 12, color: '#64748b', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
@@ -1221,7 +1221,8 @@ export default function Inventory({ data, salesData, psiData }) {
         <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>{data.length} lot lines</div>
       </div>
 
-      <InventoryValue data={data} />
+      <InventoryFGSS data={data} salesData={salesData || []} psiData={psiData} />
+      <div style={{ marginTop: 32 }}><InventoryValue data={data} /></div>
       <div style={{ marginTop: 32 }}><StockOverview data={data} /></div>
       <div style={{ marginTop: 32 }}>
         <ExpirySection id="inv-comp-exp" title="Components Expiry / Shelf Life" icon="🧪" rows={compRows} />
@@ -1234,9 +1235,6 @@ export default function Inventory({ data, salesData, psiData }) {
       </div>
       <div style={{ marginTop: 32 }}>
         <ComponentsAtRisk data={data} />
-      </div>
-      <div style={{ marginTop: 32 }}>
-        <InventoryFGSS data={data} salesData={salesData || []} psiData={psiData} />
       </div>
       <div style={{ height: 60 }} />
     </div>
