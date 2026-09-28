@@ -943,7 +943,8 @@ function InventoryFGSS({ data, salesData, psiData }) {
   // qualified at start are consumed until depleted.
   const projectionRows = useMemo(() => {
     const projStart = projWeeks[0];
-    const minExpiryAtStart = addMonths(projStart, shelfLifeMonths);
+    // Last day of the 6th calendar month from projStart — lot must expire strictly after this
+    const minExpiryAtStart = new Date(projStart.getFullYear(), projStart.getMonth() + shelfLifeMonths + 1, 0);
 
     return allFGItems.map(item => {
       const avgDemand    = kpiRows.find(r => r.item === item)?.avgDemand || 0;
@@ -952,7 +953,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
 
       // Qualify lots once at projection start (≥6m shelf life today)
       let runningLots = fgLots
-        .filter(l => l.item === item && (l.expiry === null || l.expiry >= minExpiryAtStart))
+        .filter(l => l.item === item && (l.expiry === null || l.expiry > minExpiryAtStart))
         .map(l => ({ qty: l.qty, expiry: l.expiry }));
 
       const weeks = projWeeks.map((weekStart) => {
