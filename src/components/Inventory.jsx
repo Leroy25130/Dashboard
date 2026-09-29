@@ -873,7 +873,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
     ).map(r => ({
       item:   r['Item'],
       qty:    Number(r['Quantity']) || 0,
-      expiry: r['Expiration Date'] ? new Date(r['Expiration Date']) : null,
+      expiry: r['Expiration Date'] ? (() => { const [y,m,d] = r['Expiration Date'].split('-'); return new Date(+y, +m-1, +d); })() : null,
     })),
     [data]);
 
