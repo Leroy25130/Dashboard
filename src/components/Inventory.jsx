@@ -801,7 +801,8 @@ function thisOrNextMonday(from) {
   const d = new Date(from);
   d.setHours(0, 0, 0, 0);
   const day = d.getDay(); // 0=Sun,1=Mon,...
-  const diff = day === 1 ? 0 : (8 - day) % 7 || 7; // 0 if already Monday
+  // Always return the Monday of the current week (go back to Monday, never forward)
+  const diff = day === 0 ? -6 : 1 - day; // Sunday → back 6; others → back to Monday
   d.setDate(d.getDate() + diff);
   return d;
 }
