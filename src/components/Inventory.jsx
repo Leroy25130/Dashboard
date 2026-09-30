@@ -808,16 +808,17 @@ function thisOrNextMonday(from) {
 }
 
 function isoWeek(d) {
-  const jan4 = new Date(d.getFullYear(), 0, 4);
-  const startOfW1 = new Date(jan4);
-  startOfW1.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
-  const diff = d - startOfW1;
-  let wk = Math.floor(diff / 604800000) + 1;
+  // Use UTC to avoid DST errors (local midnight - local midnight can differ by 1h across DST boundary)
+  const utc = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  const jan4 = Date.UTC(d.getFullYear(), 0, 4);
+  const jan4Day = new Date(jan4).getUTCDay();
+  const w1Start = jan4 - ((jan4Day + 6) % 7) * 86400000;
+  let wk = Math.floor((utc - w1Start) / (7 * 86400000)) + 1;
   if (wk < 1) {
-    const prevJan4 = new Date(d.getFullYear() - 1, 0, 4);
-    const prevStart = new Date(prevJan4);
-    prevStart.setDate(prevJan4.getDate() - ((prevJan4.getDay() + 6) % 7));
-    wk = Math.floor((d - prevStart) / 604800000) + 1;
+    const prevJan4 = Date.UTC(d.getFullYear() - 1, 0, 4);
+    const prevJan4Day = new Date(prevJan4).getUTCDay();
+    const prevW1Start = prevJan4 - ((prevJan4Day + 6) % 7) * 86400000;
+    wk = Math.floor((utc - prevW1Start) / (7 * 86400000)) + 1;
   }
   return wk;
 }
