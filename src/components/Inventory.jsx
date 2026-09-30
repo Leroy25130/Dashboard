@@ -911,9 +911,18 @@ function InventoryFGSS({ data, salesData, psiData }) {
   }, [salesData, effectiveMonths]);
 
   // ── All FG items ──────────────────────────────────────────────────────────
+  const FG_ORDER = ['TVTRL','TVTOML','810081','810081L','810041A','810041B','810041BL','830041BL','830041','810051','810061'];
   const allFGItems = useMemo(() => {
     const s = new Set([...Object.keys(currentStock), ...Object.keys(fgShipments)]);
-    return [...s].filter(i => FG_CODES.has(i)).sort();
+    const items = [...s].filter(i => FG_CODES.has(i));
+    return items.sort((a, b) => {
+      const ia = FG_ORDER.indexOf(a);
+      const ib = FG_ORDER.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
   }, [currentStock, fgShipments]);
 
   // ── Current-state KPI rows ────────────────────────────────────────────────
