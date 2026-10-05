@@ -841,7 +841,8 @@ function InventoryFGSS({ data, salesData, psiData }) {
   const availableMonths = useMemo(() => {
     const ms = new Set();
     (salesData || []).forEach(r => {
-      const m = monthLabel(toISOInv(r['Shipped Date']));
+      const raw = r['Shipped Date'] || r['Scheduled Shipment Date'];
+      const m = monthLabel(toISOInv(raw));
       if (m && m !== 'Unknown') ms.add(m);
     });
     return sortedMonths([...ms]);

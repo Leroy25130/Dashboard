@@ -271,10 +271,15 @@ function parseSalesFile(workbook) {
             const d = XLSX.SSF.parse_date_code(v);
             if (d) v = `${d.y}/${String(d.m).padStart(2,'0')}/${String(d.d).padStart(2,'0')}`;
           } else if (typeof v === 'string') {
-            // Handle DD-MON-YYYY (e.g. "30-SEP-2026") → YYYY/MM/DD
             const MON = {JAN:'01',FEB:'02',MAR:'03',APR:'04',MAY:'05',JUN:'06',JUL:'07',AUG:'08',SEP:'09',OCT:'10',NOV:'11',DEC:'12'};
-            const m = v.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
-            if (m) v = `${m[3]}/${MON[m[2].toUpperCase()] || '01'}/${String(m[1]).padStart(2,'0')}`;
+            // DD-MON-YYYY → e.g. "30-SEP-2026"
+            const m1 = v.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+            if (m1) { v = `${m1[3]}/${MON[m1[2].toUpperCase()] || '01'}/${String(m1[1]).padStart(2,'0')}`; }
+            // MM/DD/YYYY → e.g. "09/30/2026"
+            else { const m2 = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+              if (m2) v = `${m2[3]}/${String(m2[1]).padStart(2,'0')}/${String(m2[2]).padStart(2,'0')}`; }
+            // YYYY-MM-DD → already parseable, normalise to YYYY/MM/DD
+            // (toISOInv in Inventory.jsx converts / to - so both work)
           }
         }
         obj[h] = v;
