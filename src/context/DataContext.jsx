@@ -355,7 +355,8 @@ export function parseExcelFile(file) {
         } else if (sheetNames.includes('purchase order')) {
           resolve({ type: 'po', data: parsePOFile(wb) });
         } else if (firstCell.includes('transfer and sales') || firstCell.includes('caldera transfer') || sheetNames.includes('shipment details')) {
-          resolve({ type: 'sales', data: parseSalesFile(wb) });
+          // Same file feeds both distribution and sales — resolve both at once
+          resolve({ type: 'sales_and_distribution', sales: parseSalesFile(wb), distribution: parseDistributionFile(wb) });
         } else if (sheetNames.includes('shipment') || firstCell.includes('scheduled shipment') || firstCell.includes('inventory organization')) {
           resolve({ type: 'distribution', data: parseDistributionFile(wb) });
         } else {

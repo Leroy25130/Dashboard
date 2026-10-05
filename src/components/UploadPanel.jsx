@@ -24,8 +24,13 @@ export default function UploadPanel({ onUpdate, lastUpdated, onClose }) {
     setStatus(null);
     try {
       const result = await parseExcelFile(file);
-      onUpdate(result.type, result.data, file.name);
-      setStatus({ type: 'success', fileType: result.type, msg: `"${file.name}" loaded successfully.` });
+      if (result.type === 'sales_and_distribution') {
+        onUpdate('sales', result.sales, file.name);
+        onUpdate('distribution', result.distribution, file.name);
+      } else {
+        onUpdate(result.type, result.data, file.name);
+      }
+      setStatus({ type: 'success', fileType: result.type === 'sales_and_distribution' ? 'sales' : result.type, msg: `"${file.name}" loaded successfully.` });
     } catch (err) {
       setStatus({ type: 'error', msg: err.message });
     } finally {
