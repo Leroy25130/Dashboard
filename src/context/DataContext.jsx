@@ -266,9 +266,16 @@ function parseSalesFile(workbook) {
       const obj = {};
       headers.forEach((h, i) => {
         let v = r[i] ?? null;
-        if (v !== null && typeof v === 'number' && h && DATE_COLS_SALES.has(h)) {
-          const d = XLSX.SSF.parse_date_code(v);
-          if (d) v = `${d.y}/${String(d.m).padStart(2,'0')}/${String(d.d).padStart(2,'0')}`;
+        if (v !== null && h && DATE_COLS_SALES.has(h)) {
+          if (typeof v === 'number') {
+            const d = XLSX.SSF.parse_date_code(v);
+            if (d) v = `${d.y}/${String(d.m).padStart(2,'0')}/${String(d.d).padStart(2,'0')}`;
+          } else if (typeof v === 'string') {
+            // Handle DD-MON-YYYY (e.g. "30-SEP-2026") → YYYY/MM/DD
+            const MON = {JAN:'01',FEB:'02',MAR:'03',APR:'04',MAY:'05',JUN:'06',JUL:'07',AUG:'08',SEP:'09',OCT:'10',NOV:'11',DEC:'12'};
+            const m = v.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+            if (m) v = `${m[3]}/${MON[m[2].toUpperCase()] || '01'}/${String(m[1]).padStart(2,'0')}`;
+          }
         }
         obj[h] = v;
       });
