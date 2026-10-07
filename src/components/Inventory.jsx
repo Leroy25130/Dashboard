@@ -955,7 +955,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
   // qualified at start are consumed until depleted.
   const projectionRows = useMemo(() => {
     const projStart = projWeeks[0];
-    // Last day of the 6th calendar month from projStart — lot must expire strictly after this
+    // Initial filter: exclude lots already below 6m at projection start
     const minExpiryAtStart = new Date(projStart.getFullYear(), projStart.getMonth() + shelfLifeMonths + 1, 0);
 
     return allFGItems.map(item => {
@@ -963,7 +963,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
       const weeklyDemand = avgDemand * 12 / 52;
       const itemWIP      = WIP[item] || {};
 
-      // Qualify lots once at projection start (≥6m shelf life today)
+      // Seed with lots that qualify at projection start
       let runningLots = fgLots
         .filter(l => l.item === item && (l.expiry === null || l.expiry > minExpiryAtStart))
         .map(l => ({ qty: l.qty, expiry: l.expiry }));
@@ -972,6 +972,10 @@ function InventoryFGSS({ data, salesData, psiData }) {
         const weekDateStr = weekStart.getFullYear() + '-' +
           String(weekStart.getMonth()+1).padStart(2,'0') + '-' +
           String(weekStart.getDate()).padStart(2,'0');
+
+        // Per-week threshold: drop lots that fall below 6m remaining shelf life this week
+        const weekThreshold = new Date(weekStart.getFullYear(), weekStart.getMonth() + shelfLifeMonths + 1, 0);
+        runningLots = runningLots.filter(l => l.expiry === null || l.expiry > weekThreshold);
 
         const wipThisWeek = itemWIP[weekDateStr] || 0;
 
