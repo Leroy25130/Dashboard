@@ -955,8 +955,8 @@ function InventoryFGSS({ data, salesData, psiData }) {
   // qualified at start are consumed until depleted.
   const projectionRows = useMemo(() => {
     const projStart = projWeeks[0];
-    // Initial filter: exclude lots already below 6m at projection start (exact day)
-    const minExpiryAtStart = new Date(projStart.getFullYear(), projStart.getMonth() + shelfLifeMonths, projStart.getDate());
+    // Initial filter: lot must have at least 195 days remaining shelf life at projection start
+    const minExpiryAtStart = new Date(projStart.getTime() + 195 * 24 * 60 * 60 * 1000);
 
     return allFGItems.map(item => {
       const avgDemand    = kpiRows.find(r => r.item === item)?.avgDemand || 0;
@@ -973,8 +973,8 @@ function InventoryFGSS({ data, salesData, psiData }) {
           String(weekStart.getMonth()+1).padStart(2,'0') + '-' +
           String(weekStart.getDate()).padStart(2,'0');
 
-        // Per-week threshold: lot must expire strictly after (weekStart + 6 calendar months)
-        const weekThreshold = new Date(weekStart.getFullYear(), weekStart.getMonth() + shelfLifeMonths, weekStart.getDate());
+        // Per-week threshold: lot must have at least 195 days remaining shelf life
+        const weekThreshold = new Date(weekStart.getTime() + 195 * 24 * 60 * 60 * 1000);
         runningLots = runningLots.filter(l => l.expiry === null || l.expiry > weekThreshold);
 
         const wipThisWeek = itemWIP[weekDateStr] || 0;
