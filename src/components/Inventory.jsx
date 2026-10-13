@@ -1219,6 +1219,27 @@ function InventoryFGSS({ data, salesData, psiData }) {
                 ))}
               </tr>
             ))}
+            {/* Total row */}
+            {(() => {
+              const weekTotals = projWeeks.map((_, n) =>
+                projectionRows.reduce((sum, r) => sum + (r.weeks[n]?.netStock || 0), 0)
+              );
+              return (
+                <tr style={{ background: '#1e3a5f', borderTop: '2px solid #3b82f6' }}>
+                  <td style={{ ...td2, fontWeight: 700, color: '#93c5fd', position: 'sticky', left: 0, background: '#1e3a5f', zIndex: 1 }}>TOTAL</td>
+                  <td style={{ ...td2, position: 'sticky', left: 80, background: '#1e3a5f', zIndex: 1 }} />
+                  <td style={{ ...td2 }} />
+                  <td style={{ ...td2 }} />
+                  {weekTotals.map((total, n) => (
+                    <td key={n} style={{ ...td2, textAlign: 'center', padding: '4px 6px' }}>
+                      <div style={{ fontWeight: 700, fontSize: 12, color: '#93c5fd' }}>
+                        {total.toLocaleString()} u
+                      </div>
+                    </td>
+                  ))}
+                </tr>
+              );
+            })()}
           </tbody>
         </table>
       </div>
