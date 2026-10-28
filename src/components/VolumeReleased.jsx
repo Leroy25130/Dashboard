@@ -16,41 +16,49 @@ function TotalLabel({ x, y, width, value }) {
   );
 }
 
-export default function VolumeReleased({ data }) {
+export default function VolumeReleased({ data, wipData }) {
   const [selectedItems, setSelectedItems] = useState(new Set());
 
-  const items = useMemo(() => [...new Set(data.map(d => d['Item Number']))].sort(), [data]);
+  // Use wipData (WIP Completion report) when uploaded, otherwise fall back to WO data
+  const usingWIP = wipData && wipData.length > 0;
+  const sourceRows = usingWIP ? wipData : [];
+
+  const getItem  = d => usingWIP ? d['Item Number']          : d['Item Number'];
+  const getDate  = d => usingWIP ? d['Transaction Date']     : d['Completion Date'];
+  const getQty   = d => usingWIP ? (d['Transaction Quantity'] || 0) : (d['Quantity Completed'] || 0);
+
+  const items = useMemo(() => [...new Set(sourceRows.map(getItem))].filter(Boolean).sort(), [sourceRows]);
 
   const filtered = useMemo(() =>
-    selectedItems.size === 0 ? data : data.filter(d => selectedItems.has(d['Item Number'])),
-    [data, selectedItems]);
+    selectedItems.size === 0 ? sourceRows : sourceRows.filter(d => selectedItems.has(getItem(d))),
+    [sourceRows, selectedItems]);
 
   const { chartData, itemKeys, monthTotals } = useMemo(() => {
     const monthSet = new Set();
     const byMonthItem = {};
     filtered.forEach(d => {
-      const m = monthLabel(d['Completion Date']);
+      const m = monthLabel(getDate(d));
+      if (!m) return;
       monthSet.add(m);
-      const key = d['Item Number'];
+      const key = getItem(d);
       if (!byMonthItem[m]) byMonthItem[m] = {};
-      byMonthItem[m][key] = (byMonthItem[m][key] || 0) + (d['Quantity Completed'] || 0);
+      byMonthItem[m][key] = (byMonthItem[m][key] || 0) + getQty(d);
     });
     const months = sortedMonths([...monthSet]);
-    const allItems = [...new Set(filtered.map(d => d['Item Number']))].sort();
+    const allItems = [...new Set(filtered.map(getItem))].filter(Boolean).sort();
     const monthTotals = {};
     months.forEach(m => {
       monthTotals[m] = Object.values(byMonthItem[m] || {}).reduce((s, v) => s + v, 0);
     });
-    // Add a __total field used by the LabelList on the last bar
     const chartData = months.map(m => ({ month: m, ...byMonthItem[m], __total: monthTotals[m] }));
     return { chartData, itemKeys: allItems, monthTotals };
   }, [filtered]);
 
-  // Table: group rows by month, append a totals row per month
   const tableRowsByMonth = useMemo(() => {
     const byMonth = {};
     filtered.forEach(d => {
-      const m = monthLabel(d['Completion Date']);
+      const m = monthLabel(getDate(d));
+      if (!m) return;
       if (!byMonth[m]) byMonth[m] = [];
       byMonth[m].push(d);
     });
@@ -63,9 +71,23 @@ export default function VolumeReleased({ data }) {
 
   const grandTotal = Object.values(monthTotals).reduce((s, v) => s + v, 0);
 
+  if (!usingWIP) {
+    return (
+      <div>
+        <SectionHeader title="Volume Released per Month" icon="📦" />
+        <div style={{ padding: '32px 20px', color: '#64748b', fontSize: 14, background: '#1e293b', borderRadius: 12, textAlign: 'center' }}>
+          Upload a <strong style={{ color: '#e2e8f0' }}>WIP Completion Report</strong> via "Update Data" to populate this chart.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <SectionHeader title="Volume Released per Month" icon="📦" />
+      <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>
+        Source: WIP Completion Report · Transaction type: Work in Process Product Completion
+      </div>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
         <ItemMultiSelect items={items} selected={selectedItems} onChange={setSelectedItems} />
@@ -94,7 +116,6 @@ export default function VolumeReleased({ data }) {
             />
             {itemKeys.map((item, i) => (
               <Bar key={item} dataKey={item} stackId="a" fill={COLORS[i % COLORS.length]}>
-                {/* Put the total label only on the topmost bar */}
                 {i === itemKeys.length - 1 && (
                   <LabelList dataKey="__total" content={<TotalLabel />} />
                 )}
@@ -109,7 +130,7 @@ export default function VolumeReleased({ data }) {
           <thead>
             <tr style={{ background: '#1e293b' }}>
               <th style={th}>Item Number</th>
-              <th style={th}>Month (Actual Complete)</th>
+              <th style={th}>Transaction Date</th>
               <th style={{ ...th, textAlign: 'right' }}>Qty Completed</th>
             </tr>
           </thead>
@@ -117,18 +138,14 @@ export default function VolumeReleased({ data }) {
             {tableRowsByMonth.map((row, i) =>
               row._isTotal ? (
                 <tr key={`total-${row._month}`} style={{ background: '#1e3a5f', borderTop: '1px solid #3b82f6' }}>
-                  <td style={{ ...td, color: '#93c5fd', fontWeight: 700 }} colSpan={2}>
-                    Total — {row._month}
-                  </td>
-                  <td style={{ ...td, color: '#93c5fd', fontWeight: 700, textAlign: 'right' }}>
-                    {row._total.toLocaleString()}
-                  </td>
+                  <td style={{ ...td, color: '#93c5fd', fontWeight: 700 }} colSpan={2}>Total — {row._month}</td>
+                  <td style={{ ...td, color: '#93c5fd', fontWeight: 700, textAlign: 'right' }}>{row._total.toLocaleString()}</td>
                 </tr>
               ) : (
                 <tr key={i} style={{ background: i % 2 === 0 ? '#0f172a' : '#1e293b' }}>
                   <td style={td}>{row['Item Number']}</td>
-                  <td style={td}>{monthLabel(row['Actual Complete Date'])}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{row['Quantity Completed']?.toLocaleString()}</td>
+                  <td style={td}>{row['Transaction Date'] ? new Date(row['Transaction Date']).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{(row['Transaction Quantity'] || 0).toLocaleString()}</td>
                 </tr>
               )
             )}

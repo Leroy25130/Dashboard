@@ -35,7 +35,7 @@ const NAV_TABS = [
 ];
 
 function Dashboard() {
-  const { woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, salesData, psiData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, updateSales, updatePSI, lastUpdated } = useData();
+  const { woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, salesData, psiData, wipData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, updateSales, updatePSI, updateWIP, lastUpdated } = useData();
   const [showUpload, setShowUpload] = useState(false);
   const [activePage, setActivePage] = useState('summary');
 
@@ -61,6 +61,7 @@ function Dashboard() {
     if (type === 'inventory')    updateInventory(newData, filename);
     if (type === 'sales')        updateSales(newData, filename);
     if (type === 'psi')          updatePSI(newData, filename);
+    if (type === 'wip')          updateWIP(newData, filename);
   };
 
   return (
@@ -135,7 +136,7 @@ function Dashboard() {
               <KPICard title="Late WOs"            value={lateWOs}                           color="#ef4444" sub="Actual > Planned complete" />
             </div>
 
-            <div id="released"><VolumeReleased data={data} /></div>
+            <div id="released"><VolumeReleased data={data} wipData={wipData} /></div>
             <div id="manufactured"><VolumeManufactured data={data} /></div>
             <div id="status"><WorkOrderStatus data={data} /></div>
             <div id="timeliness"><Timeliness data={data} /></div>

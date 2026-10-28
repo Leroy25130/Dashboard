@@ -18,12 +18,13 @@ const LS_PO      = 'caldera_po_data';
 const LS_INV     = 'caldera_inventory_data';
 const LS_SALES   = 'caldera_sales_data';
 const LS_PSI     = 'caldera_psi_data';
+const LS_WIP     = 'caldera_wip_data';
 const LS_VERSION = 'caldera_data_version';
-const CACHE_VERSION = '6';  // bump this whenever default data changes
+const CACHE_VERSION = '7';  // bump this whenever default data changes
 
 // Clear stale localStorage if version doesn't match
 if (localStorage.getItem(LS_VERSION) !== CACHE_VERSION) {
-  [LS_WO, LS_ABS, LS_CC, LS_DIST, LS_PO, LS_INV, LS_SALES, LS_PSI, 'caldera_last_updated'].forEach(k => localStorage.removeItem(k));
+  [LS_WO, LS_ABS, LS_CC, LS_DIST, LS_PO, LS_INV, LS_SALES, LS_PSI, LS_WIP, 'caldera_last_updated'].forEach(k => localStorage.removeItem(k));
   localStorage.setItem(LS_VERSION, CACHE_VERSION);
 }
 
@@ -331,6 +332,35 @@ function parsePSIFile(workbook) {
   return result;
 }
 
+// ── WIP Completion file parser ────────────────────────────────────────────────
+function parseWIPCompletionFile(workbook) {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+  // Header row contains 'Transaction Type'
+  const headerIdx = raw.findIndex(r => r.some(v => String(v ?? '').trim() === 'Transaction Type'));
+  if (headerIdx === -1) throw new Error('Could not find header row in WIP Completion file');
+
+  const headers = raw[headerIdx];
+  const rows = raw.slice(headerIdx + 1)
+    .filter(r => r.some(v => v !== null))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, i) => {
+        let v = r[i] ?? null;
+        if (v !== null && typeof v === 'number' && String(h ?? '').toLowerCase().includes('date')) {
+          const d = XLSX.SSF.parse_date_code(v);
+          if (d) v = new Date(d.y, d.m - 1, d.d).toISOString();
+        }
+        obj[h] = v;
+      });
+      return obj;
+    });
+
+  // Keep only "Work in Process Product Completion" rows
+  return rows.filter(r => r['Transaction Type'] === 'Work in Process Product Completion');
+}
+
 // ── Detect file type and parse ────────────────────────────────────────────────
 export function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
@@ -342,6 +372,16 @@ export function parseExcelFile(file) {
         const firstSheet = wb.Sheets[wb.SheetNames[0]];
         const firstCell  = String(XLSX.utils.sheet_to_json(firstSheet, { header: 1 })[0]?.[0] ?? '').toLowerCase();
 
+        if (firstCell.includes('caldera wip completion') || (rows2.slice(0, 10).some(r => r.some(v => String(v ?? '') === 'Transaction Type')))) {
+          // WIP Completion report — must check early as it has generic structure
+          // Confirm it has the expected Transaction Type column
+          const allRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
+          const hasWIPHeader = allRows.some(r => r.some(v => String(v ?? '').trim() === 'Transaction Type'));
+          if (hasWIPHeader && (firstCell.includes('caldera wip completion') || firstCell.includes('wip completion'))) {
+            resolve({ type: 'wip', data: parseWIPCompletionFile(wb) });
+            return;
+          }
+        }
         if (wb.SheetNames.some(n => /psi high level/i.test(n))) {
           resolve({ type: 'psi', data: parsePSIFile(wb) });
         } else if (firstCell.includes('inventory management report')) {
@@ -415,6 +455,7 @@ export function DataProvider({ children }) {
   const [inventoryData,    setInventoryData]    = useState(() => loadLS(LS_INV,   defaultInventory));
   const [salesData,        setSalesData]        = useState(() => loadLS(LS_SALES, defaultSales));
   const [psiData,          setPSIData]          = useState(() => loadLS(LS_PSI,   null));
+  const [wipData,          setWIPData]          = useState(() => loadLS(LS_WIP,   null));
   const [lastUpdated,    setLastUpdated]    = useState(() => {
     try { return JSON.parse(localStorage.getItem('caldera_last_updated') || '{}'); } catch { return {}; }
   });
@@ -483,8 +524,16 @@ export function DataProvider({ children }) {
     localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
   };
 
+  const updateWIP = (data, filename) => {
+    setWIPData(data);
+    localStorage.setItem(LS_WIP, JSON.stringify(data));
+    const ts = { ...lastUpdated, wip: { filename, at: new Date().toISOString() } };
+    setLastUpdated(ts);
+    localStorage.setItem('caldera_last_updated', JSON.stringify(ts));
+  };
+
   return (
-    <DataContext.Provider value={{ woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, salesData, psiData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, updateSales, updatePSI, lastUpdated }}>
+    <DataContext.Provider value={{ woData, absorptionData, cycleCountData, distributionData, poData, inventoryData, salesData, psiData, wipData, updateWO, updateAbsorption, updateCycleCount, updateDistribution, updatePO, updateInventory, updateSales, updatePSI, updateWIP, lastUpdated }}>
       {children}
     </DataContext.Provider>
   );

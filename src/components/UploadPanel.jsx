@@ -10,6 +10,7 @@ const FILE_TYPES = {
   inventory:    { label: 'Inventory Management Report', color: '#06b6d4', icon: '🗃' },
   sales:        { label: 'Transfer & Sales Orders',     color: '#ec4899', icon: '👥' },
   psi:          { label: 'TVT Planning / PSI High Level', color: '#8b5cf6', icon: '📅' },
+  wip:          { label: 'WIP Completion Report',         color: '#10b981', icon: '🏁' },
 };
 
 export default function UploadPanel({ onUpdate, lastUpdated, onClose }) {
