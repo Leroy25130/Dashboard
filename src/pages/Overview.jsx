@@ -33,7 +33,7 @@ export default function Overview() {
   const releasedChart = useMemo(() => {
     const byMonthItem = {};
     data.forEach(d => {
-      const m = monthLabel(d['Complete Date']);
+      const m = monthLabel(d['Completion Date']);
       const key = d['Item Number'];
       if (!byMonthItem[m]) byMonthItem[m] = {};
       byMonthItem[m][key] = (byMonthItem[m][key] || 0) + (d['Quantity Completed'] || 0);

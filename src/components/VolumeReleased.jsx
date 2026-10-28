@@ -29,7 +29,7 @@ export default function VolumeReleased({ data }) {
     const monthSet = new Set();
     const byMonthItem = {};
     filtered.forEach(d => {
-      const m = monthLabel(d['Complete Date']);
+      const m = monthLabel(d['Completion Date']);
       monthSet.add(m);
       const key = d['Item Number'];
       if (!byMonthItem[m]) byMonthItem[m] = {};
@@ -50,7 +50,7 @@ export default function VolumeReleased({ data }) {
   const tableRowsByMonth = useMemo(() => {
     const byMonth = {};
     filtered.forEach(d => {
-      const m = monthLabel(d['Complete Date']);
+      const m = monthLabel(d['Completion Date']);
       if (!byMonth[m]) byMonth[m] = [];
       byMonth[m].push(d);
     });
