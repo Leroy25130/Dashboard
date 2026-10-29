@@ -372,17 +372,9 @@ export function parseExcelFile(file) {
         const firstSheet = wb.Sheets[wb.SheetNames[0]];
         const firstCell  = String(XLSX.utils.sheet_to_json(firstSheet, { header: 1 })[0]?.[0] ?? '').toLowerCase();
 
-        if (firstCell.includes('caldera wip completion') || (rows2.slice(0, 10).some(r => r.some(v => String(v ?? '') === 'Transaction Type')))) {
-          // WIP Completion report — must check early as it has generic structure
-          // Confirm it has the expected Transaction Type column
-          const allRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
-          const hasWIPHeader = allRows.some(r => r.some(v => String(v ?? '').trim() === 'Transaction Type'));
-          if (hasWIPHeader && (firstCell.includes('caldera wip completion') || firstCell.includes('wip completion'))) {
-            resolve({ type: 'wip', data: parseWIPCompletionFile(wb) });
-            return;
-          }
-        }
-        if (wb.SheetNames.some(n => /psi high level/i.test(n))) {
+        if (firstCell.includes('caldera wip completion') || firstCell.includes('wip completion')) {
+          resolve({ type: 'wip', data: parseWIPCompletionFile(wb) });
+        } else if (wb.SheetNames.some(n => /psi high level/i.test(n))) {
           resolve({ type: 'psi', data: parsePSIFile(wb) });
         } else if (firstCell.includes('inventory management report')) {
           resolve({ type: 'inventory', data: parseInventoryFile(wb) });
