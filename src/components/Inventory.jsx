@@ -830,6 +830,73 @@ function weekLabel(d) {
   return `CW${wk}\n${mon} ${day}`;
 }
 
+function isoDate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// Stateful FEFO projection: lots are filtered at projection start (≥195 days
+// shelf life) and re-filtered each week, then weeklyDemand is consumed
+// earliest-expiry-first. Planned WIP (and optional manual WIP from the PSI
+// Simulator) is added as a non-expiring lot in the week it arrives.
+function runProjection({ items, kpiRows, fgLots, projWeeks, wip, manualWip = {} }) {
+  const projStart = projWeeks[0];
+  const minExpiryAtStart = new Date(projStart.getTime() + 195 * 24 * 60 * 60 * 1000);
+
+  return items.map(item => {
+    const avgDemand    = kpiRows.find(r => r.item === item)?.avgDemand || 0;
+    const weeklyDemand = avgDemand * 12 / 52;
+    const itemWIP      = wip[item] || {};
+    const itemManual   = manualWip[item] || {};
+
+    let runningLots = fgLots
+      .filter(l => l.item === item && (l.expiry === null || l.expiry > minExpiryAtStart))
+      .map(l => ({ qty: l.qty, expiry: l.expiry }));
+
+    const weeks = projWeeks.map((weekStart) => {
+      const weekDateStr = isoDate(weekStart);
+
+      const weekThreshold = new Date(weekStart.getTime() + 195 * 24 * 60 * 60 * 1000);
+      runningLots = runningLots.filter(l => l.expiry === null || l.expiry > weekThreshold);
+
+      const wipThisWeek    = itemWIP[weekDateStr] || 0;
+      const manualThisWeek = itemManual[weekDateStr] || 0;
+      // Positive manual qty = extra WIP arriving; negative = units removed (scrap, extra pull…)
+      const arriving = wipThisWeek + Math.max(0, manualThisWeek);
+      const removed  = Math.max(0, -manualThisWeek);
+      if (arriving > 0) runningLots.push({ qty: arriving, expiry: null });
+
+      runningLots.sort((a, b) => {
+        if (a.expiry === null && b.expiry === null) return 0;
+        if (a.expiry === null) return 1;
+        if (b.expiry === null) return -1;
+        return a.expiry - b.expiry;
+      });
+
+      let toConsume = weeklyDemand + removed;
+      for (const lot of runningLots) {
+        if (toConsume <= 0) break;
+        const consumed = Math.min(lot.qty, toConsume);
+        lot.qty -= consumed;
+        toConsume -= consumed;
+      }
+      runningLots = runningLots.filter(l => l.qty > 0);
+
+      const qualifyingStock = runningLots.reduce((s, l) => s + l.qty, 0);
+      const coverage = avgDemand > 0 ? +(qualifyingStock / avgDemand).toFixed(2) : null;
+      return { netStock: +qualifyingStock.toFixed(0), coverage, wipThisWeek, manualThisWeek, weekDateStr };
+    });
+    return { item, avgDemand, weeklyDemand: +weeklyDemand.toFixed(1), weeks };
+  });
+}
+
+const LS_PSI_SIM = 'caldera_psi_sim_manual_wip';
+function loadManualWip() {
+  try { return JSON.parse(localStorage.getItem(LS_PSI_SIM) || '{}') || {}; } catch { return {}; }
+}
+function saveManualWip(v) {
+  try { localStorage.setItem(LS_PSI_SIM, JSON.stringify(v)); } catch { /* storage unavailable */ }
+}
+
 function InventoryFGSS({ data, salesData, psiData }) {
   // Use uploaded PSI data when available, fall back to hardcoded releases
   const WIP = psiData || WIP_RELEASES;
@@ -948,67 +1015,33 @@ function InventoryFGSS({ data, salesData, psiData }) {
 
   const projWeekLabels = projWeeks.map(weekLabel);
 
-  // Weekly demand = avgMonthlyDemand × 12 / 52
-  // Stateful FEFO projection: filter lots once at projection start (≥6m today),
-  // then carry running balances week by week consuming weeklyDemand each week.
-  // WIP is added when it arrives. No per-week re-filtering — lots already
-  // qualified at start are consumed until depleted.
-  const projectionRows = useMemo(() => {
-    const projStart = projWeeks[0];
-    // Initial filter: lot must have at least 195 days remaining shelf life at projection start
-    const minExpiryAtStart = new Date(projStart.getTime() + 195 * 24 * 60 * 60 * 1000);
+  // Weekly demand = avgMonthlyDemand × 12 / 52 — see runProjection() for FEFO logic
+  const projectionRows = useMemo(
+    () => runProjection({ items: allFGItems, kpiRows, fgLots, projWeeks, wip: WIP }),
+    [allFGItems, kpiRows, fgLots, projWeeks, WIP]);
 
-    return allFGItems.map(item => {
-      const avgDemand    = kpiRows.find(r => r.item === item)?.avgDemand || 0;
-      const weeklyDemand = avgDemand * 12 / 52;
-      const itemWIP      = WIP[item] || {};
-
-      // Seed with lots that qualify at projection start
-      let runningLots = fgLots
-        .filter(l => l.item === item && (l.expiry === null || l.expiry > minExpiryAtStart))
-        .map(l => ({ qty: l.qty, expiry: l.expiry }));
-
-      const weeks = projWeeks.map((weekStart) => {
-        const weekDateStr = weekStart.getFullYear() + '-' +
-          String(weekStart.getMonth()+1).padStart(2,'0') + '-' +
-          String(weekStart.getDate()).padStart(2,'0');
-
-        // Per-week threshold: lot must have at least 195 days remaining shelf life
-        const weekThreshold = new Date(weekStart.getTime() + 195 * 24 * 60 * 60 * 1000);
-        runningLots = runningLots.filter(l => l.expiry === null || l.expiry > weekThreshold);
-
-        const wipThisWeek = itemWIP[weekDateStr] || 0;
-
-        // Add WIP arriving this week as a non-expiring lot
-        if (wipThisWeek > 0) runningLots.push({ qty: wipThisWeek, expiry: null });
-
-        // Sort FEFO: earliest expiry first, null (WIP) last
-        runningLots.sort((a, b) => {
-          if (a.expiry === null && b.expiry === null) return 0;
-          if (a.expiry === null) return 1;
-          if (b.expiry === null) return -1;
-          return a.expiry - b.expiry;
-        });
-
-        // Consume weeklyDemand from FEFO order, updating running balances
-        let toConsume = weeklyDemand;
-        for (const lot of runningLots) {
-          if (toConsume <= 0) break;
-          const consumed = Math.min(lot.qty, toConsume);
-          lot.qty -= consumed;
-          toConsume -= consumed;
-        }
-
-        // Remove fully depleted lots
-        runningLots = runningLots.filter(l => l.qty > 0);
-
-        const qualifyingStock = runningLots.reduce((s, l) => s + l.qty, 0);
-        const coverage = avgDemand > 0 ? +(qualifyingStock / avgDemand).toFixed(2) : null;
-        return { netStock: +qualifyingStock.toFixed(0), coverage, wipThisWeek };
-      });
-      return { item, avgDemand, weeklyDemand: +weeklyDemand.toFixed(1), weeks };
+  // ── PSI Simulator: manual WIP quantities per item × week (persisted locally) ──
+  const [manualWip, setManualWip] = useState(loadManualWip);
+  const updateManualWip = (item, dateStr, raw) => {
+    setManualWip(prev => {
+      const next = { ...prev, [item]: { ...(prev[item] || {}) } };
+      const qty = Number(raw);
+      if (raw === '' || !Number.isFinite(qty) || qty === 0) delete next[item][dateStr];
+      else next[item][dateStr] = qty;
+      if (Object.keys(next[item]).length === 0) delete next[item];
+      saveManualWip(next);
+      return next;
     });
-  }, [allFGItems, kpiRows, fgLots, projWeeks]);
+  };
+  const clearManualWip = () => { setManualWip({}); saveManualWip({}); };
+  const manualEntries = Object.values(manualWip).flatMap(byWeek => Object.values(byWeek));
+  const manualAdded   = manualEntries.filter(q => q > 0).reduce((a, b) => a + b, 0);
+  const manualRemoved = manualEntries.filter(q => q < 0).reduce((a, b) => a - b, 0);
+  const manualWipTotal = manualEntries.length;
+
+  const simRows = useMemo(
+    () => runProjection({ items: allFGItems, kpiRows, fgLots, projWeeks, wip: WIP, manualWip }),
+    [allFGItems, kpiRows, fgLots, projWeeks, WIP, manualWip]);
 
   // ── Summary counts ────────────────────────────────────────────────────────
   const critical  = kpiRows.filter(r => r.coverage !== null && (r.coverage < SS_ORA_LOW || r.coverage > SS_ORA_HIGH)).length;
@@ -1235,6 +1268,124 @@ function InventoryFGSS({ data, salesData, psiData }) {
                       <div style={{ fontWeight: 700, fontSize: 12, color: '#93c5fd' }}>
                         {total.toLocaleString()} u
                       </div>
+                    </td>
+                  ))}
+                </tr>
+              );
+            })()}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── PSI Simulator: duplicate of the 26-week projection with manual WIP inputs ── */}
+      <div id="inv-psi-sim" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, flexWrap: 'wrap' }}>
+        <div style={{ color: '#f1f5f9', fontSize: 15, fontWeight: 700 }}>🧮 PSI Simulator</div>
+        <div style={{ color: '#64748b', fontSize: 12 }}>
+          {manualWipTotal > 0
+            ? <>Manual adjustments: <strong style={{ color: '#38bdf8' }}>+{manualAdded.toLocaleString()} u added</strong>
+                {' · '}<strong style={{ color: '#f87171' }}>−{manualRemoved.toLocaleString()} u removed</strong></>
+            : 'No manual adjustments entered'}
+        </div>
+        <div style={{ flex: 1 }} />
+        {manualWipTotal > 0 && (
+          <button onClick={clearManualWip} style={clearBtn}>Clear all manual adjustments</button>
+        )}
+      </div>
+      <div style={{ color: '#64748b', fontSize: 11, marginBottom: 10 }}>
+        Same projection as above, plus your manual adjustments per code and per week · type a positive quantity to add WIP or a negative quantity (e.g. -500) to remove units ·
+        <span style={{ color: '#34d399' }}> green = planned WIP</span> ·
+        <span style={{ color: '#38bdf8' }}> blue = manual add</span> ·
+        <span style={{ color: '#f87171' }}> red = manual remove</span> · Δ = change vs. baseline projection · entries are saved in this browser
+      </div>
+      <div style={{ overflowX: 'auto', marginBottom: 32 }}>
+        <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
+          <thead>
+            <tr style={{ background: '#1e293b' }}>
+              <th style={{ ...th2, position: 'sticky', left: 0, background: '#1e293b', zIndex: 2 }}>Item</th>
+              <th style={{ ...th2, position: 'sticky', left: 80, background: '#1e293b', zIndex: 2, minWidth: 160 }}>Description</th>
+              <th style={{ ...th2, whiteSpace: 'nowrap' }}>Avg/m</th>
+              <th style={{ ...th2, whiteSpace: 'nowrap' }}>Avg/wk</th>
+              {projWeekLabels.map((lbl, n) => (
+                <th key={n} style={{ ...th2, whiteSpace: 'pre', textAlign: 'center', minWidth: 80, lineHeight: 1.3 }}>{lbl}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {simRows.map((r, i) => {
+              const base = projectionRows[i];
+              const rowBg = i % 2 === 0 ? '#0f172a' : '#1e293b';
+              return (
+                <tr key={r.item} style={{ background: rowBg }}>
+                  <td style={{ ...td2, fontWeight: 700, position: 'sticky', left: 0, background: rowBg, zIndex: 1 }}>{r.item}</td>
+                  <td style={{ ...td2, color: '#94a3b8', position: 'sticky', left: 80, background: rowBg, zIndex: 1, minWidth: 160 }}>{itemDesc[r.item] || ''}</td>
+                  <td style={{ ...td2, whiteSpace: 'nowrap' }}>{r.avgDemand.toLocaleString()}</td>
+                  <td style={{ ...td2, whiteSpace: 'nowrap' }}>{r.weeklyDemand.toLocaleString()}</td>
+                  {r.weeks.map((w, n) => {
+                    const delta = w.netStock - (base?.weeks[n]?.netStock || 0);
+                    return (
+                      <td key={n} style={{ ...td2, textAlign: 'center', padding: '4px 6px', verticalAlign: 'top' }}>
+                        <div style={{
+                          background: w.coverage !== null ? coverageColor(w.coverage) + '22' : 'transparent',
+                          borderRadius: 5, padding: '3px 6px',
+                          border: `1px solid ${w.manualThisWeek > 0 ? '#38bdf8' : w.manualThisWeek < 0 ? '#f87171' : (w.coverage !== null ? coverageColor(w.coverage) + '55' : '#334155')}`,
+                          minWidth: 68,
+                        }}>
+                          <div style={{ color: coverageColor(w.coverage), fontWeight: 700, fontSize: 12 }}>
+                            {w.coverage !== null ? `${w.coverage}m` : '—'}
+                          </div>
+                          <div style={{ color: '#64748b', fontSize: 10 }}>
+                            {w.netStock.toLocaleString()} u
+                          </div>
+                          {w.wipThisWeek > 0 && (
+                            <div style={{ color: '#34d399', fontSize: 10, fontWeight: 600 }}>
+                              +{w.wipThisWeek.toLocaleString()} WIP
+                            </div>
+                          )}
+                          {delta !== 0 && (
+                            <div style={{ color: delta > 0 ? '#38bdf8' : '#f87171', fontSize: 10, fontWeight: 600 }}>
+                              Δ {delta > 0 ? '+' : ''}{delta.toLocaleString()}
+                            </div>
+                          )}
+                          <input
+                            type="number"
+                            step="1"
+                            placeholder="± qty"
+                            aria-label={`Manual adjustment for ${r.item} week of ${w.weekDateStr}`}
+                            value={w.manualThisWeek || ''}
+                            onChange={e => updateManualWip(r.item, w.weekDateStr, e.target.value)}
+                            style={{
+                              width: 60, marginTop: 3, padding: '2px 4px', fontSize: 11, textAlign: 'center',
+                              background: w.manualThisWeek > 0 ? '#0c4a6e' : w.manualThisWeek < 0 ? '#450a0a' : '#0f172a',
+                              color: w.manualThisWeek < 0 ? '#f87171' : '#38bdf8', fontWeight: 600,
+                              border: `1px solid ${w.manualThisWeek > 0 ? '#38bdf8' : w.manualThisWeek < 0 ? '#f87171' : '#334155'}`, borderRadius: 4,
+                            }}
+                          />
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            {(() => {
+              const weekTotals = projWeeks.map((_, n) =>
+                simRows.reduce((sum, r) => sum + (r.weeks[n]?.netStock || 0), 0));
+              const manualTotals = projWeeks.map((_, n) =>
+                simRows.reduce((sum, r) => sum + (r.weeks[n]?.manualThisWeek || 0), 0));
+              return (
+                <tr style={{ background: '#1e3a5f', borderTop: '2px solid #3b82f6' }}>
+                  <td style={{ ...td2, fontWeight: 700, color: '#93c5fd', position: 'sticky', left: 0, background: '#1e3a5f', zIndex: 1 }}>TOTAL</td>
+                  <td style={{ ...td2, position: 'sticky', left: 80, background: '#1e3a5f', zIndex: 1 }} />
+                  <td style={{ ...td2 }} />
+                  <td style={{ ...td2 }} />
+                  {weekTotals.map((total, n) => (
+                    <td key={n} style={{ ...td2, textAlign: 'center', padding: '4px 6px' }}>
+                      <div style={{ fontWeight: 700, fontSize: 12, color: '#93c5fd' }}>{total.toLocaleString()} u</div>
+                      {manualTotals[n] !== 0 && (
+                        <div style={{ fontSize: 10, fontWeight: 600, color: manualTotals[n] > 0 ? '#38bdf8' : '#f87171' }}>
+                          {manualTotals[n] > 0 ? '+' : ''}{manualTotals[n].toLocaleString()} manual
+                        </div>
+                      )}
                     </td>
                   ))}
                 </tr>

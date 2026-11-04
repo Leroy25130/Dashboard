@@ -256,6 +256,7 @@ function Dashboard() {
               { id: 'inv-quar',     label: '⚠️ Quarantine' },
               { id: 'inv-atrisk',   label: '🚨 Components at Risk' },
               { id: 'inv-fgss',     label: '📊 FG Safety Stock' },
+              { id: 'inv-psi-sim',  label: '🧮 PSI Simulator' },
             ].map(s => (
               <button key={s.id}
                 onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
