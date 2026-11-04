@@ -1013,7 +1013,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
     });
   }, []);
 
-  const projWeekLabels = projWeeks.map(weekLabel);
+  const projWeekLabels = useMemo(() => projWeeks.map(weekLabel), [projWeeks]);
 
   // Weekly demand = avgMonthlyDemand × 12 / 52 — see runProjection() for FEFO logic
   const projectionRows = useMemo(
@@ -1033,7 +1033,13 @@ function InventoryFGSS({ data, salesData, psiData }) {
       return next;
     });
   };
-  const clearManualWip = () => { setManualWip({}); saveManualWip({}); };
+  const clearManualWip = () => {
+    const n = Object.values(manualWip).reduce((c, byWeek) => c + Object.keys(byWeek).length, 0);
+    if (n === 0) return;
+    if (!window.confirm(`Reset the simulation? This removes all ${n} manual adjustment${n !== 1 ? 's' : ''}.`)) return;
+    setManualWip({});
+    saveManualWip({});
+  };
   const manualEntries = Object.values(manualWip).flatMap(byWeek => Object.values(byWeek));
   const manualAdded   = manualEntries.filter(q => q > 0).reduce((a, b) => a + b, 0);
   const manualRemoved = manualEntries.filter(q => q < 0).reduce((a, b) => a - b, 0);
@@ -1042,6 +1048,50 @@ function InventoryFGSS({ data, salesData, psiData }) {
   const simRows = useMemo(
     () => runProjection({ items: allFGItems, kpiRows, fgLots, projWeeks, wip: WIP, manualWip }),
     [allFGItems, kpiRows, fgLots, projWeeks, WIP, manualWip]);
+
+  // ── PSI Simulator: summary of changes ──────────────────────────────────────
+  const simChanges = useMemo(() => {
+    const weekIdx = Object.fromEntries(projWeeks.map((d, n) => [isoDate(d), n]));
+    const rows = [];
+    Object.entries(manualWip).forEach(([item, byWeek]) => {
+      Object.entries(byWeek).forEach(([dateStr, qty]) => {
+        const n = weekIdx[dateStr];
+        const inHorizon = n !== undefined;
+        const base = inHorizon ? projectionRows.find(r => r.item === item)?.weeks[n] : null;
+        const sim  = inHorizon ? simRows.find(r => r.item === item)?.weeks[n] : null;
+        const [y, m, d] = dateStr.split('-').map(Number);
+        rows.push({
+          item, dateStr, qty, inHorizon,
+          weekLabel: weekLabel(new Date(y, m - 1, d)).replace('\n', ' · '),
+          baseStock: base?.netStock ?? null, simStock: sim?.netStock ?? null,
+          baseCov: base?.coverage ?? null,   simCov: sim?.coverage ?? null,
+        });
+      });
+    });
+    const order = item => { const i = allFGItems.indexOf(item); return i === -1 ? 999 : i; };
+    return rows.sort((a, b) => order(a.item) - order(b.item) || a.dateStr.localeCompare(b.dateStr));
+  }, [manualWip, projWeeks, projectionRows, simRows, allFGItems]);
+
+  const simImpactByItem = useMemo(() => {
+    const last = projWeeks.length - 1;
+    return allFGItems.filter(item => manualWip[item]).map(item => {
+      const qtys = Object.values(manualWip[item]);
+      const base = projectionRows.find(r => r.item === item);
+      const sim  = simRows.find(r => r.item === item);
+      const below   = row => row.weeks.filter(w => w.coverage !== null && w.coverage < SS_ORA_LOW).length;
+      const outWeeks = row => row.weeks.filter(w => w.netStock <= 0).length;
+      const firstOut = row => { const n = row.weeks.findIndex(w => w.netStock <= 0); return n === -1 ? null : projWeekLabels[n].split('\n')[0]; };
+      return {
+        item,
+        added:   qtys.filter(q => q > 0).reduce((a, b) => a + b, 0),
+        removed: qtys.filter(q => q < 0).reduce((a, b) => a - b, 0),
+        baseEnd: base.weeks[last].netStock, simEnd: sim.weeks[last].netStock,
+        baseBelow: below(base), simBelow: below(sim),
+        baseOut: outWeeks(base), simOut: outWeeks(sim),
+        baseFirstOut: firstOut(base), simFirstOut: firstOut(sim),
+      };
+    });
+  }, [manualWip, allFGItems, projWeeks, projWeekLabels, projectionRows, simRows]);
 
   // ── Summary counts ────────────────────────────────────────────────────────
   const critical  = kpiRows.filter(r => r.coverage !== null && (r.coverage < SS_ORA_LOW || r.coverage > SS_ORA_HIGH)).length;
@@ -1287,9 +1337,19 @@ function InventoryFGSS({ data, salesData, psiData }) {
             : 'No manual adjustments entered'}
         </div>
         <div style={{ flex: 1 }} />
-        {manualWipTotal > 0 && (
-          <button onClick={clearManualWip} style={clearBtn}>Clear all manual adjustments</button>
-        )}
+        <button
+          onClick={clearManualWip}
+          disabled={manualWipTotal === 0}
+          title={manualWipTotal === 0 ? 'Nothing to clear' : 'Remove all manual adjustments'}
+          style={{
+            background: manualWipTotal > 0 ? '#7f1d1d' : '#1e293b',
+            color: manualWipTotal > 0 ? '#fecaca' : '#475569',
+            border: `1px solid ${manualWipTotal > 0 ? '#ef4444' : '#334155'}`,
+            borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600,
+            cursor: manualWipTotal > 0 ? 'pointer' : 'not-allowed',
+          }}>
+          ↺ Clear simulation
+        </button>
       </div>
       <div style={{ color: '#64748b', fontSize: 11, marginBottom: 10 }}>
         Same projection as above, plus your manual adjustments per code and per week · type a positive quantity to add WIP or a negative quantity (e.g. -500) to remove units ·
@@ -1393,6 +1453,106 @@ function InventoryFGSS({ data, salesData, psiData }) {
             })()}
           </tbody>
         </table>
+      </div>
+
+      {/* ── PSI Simulator: summary of changes ───────────────────────────── */}
+      <div id="inv-psi-summary" style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 32 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+          <div style={{ color: '#f1f5f9', fontSize: 14, fontWeight: 700 }}>📝 Simulation summary — changes made</div>
+          <div style={{ color: '#64748b', fontSize: 12 }}>
+            {simChanges.length} change{simChanges.length !== 1 ? 's' : ''} · {simImpactByItem.length} code{simImpactByItem.length !== 1 ? 's' : ''} impacted
+          </div>
+        </div>
+
+        {simChanges.length === 0 ? (
+          <div style={{ color: '#64748b', fontSize: 13, padding: '8px 0' }}>
+            No changes yet. Enter a quantity in the simulator above to see it listed here.
+          </div>
+        ) : (
+          <>
+            <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Impact by code</div>
+            <div style={{ overflowX: 'auto', marginBottom: 20 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#0f172a' }}>
+                    {['Item', 'Description', 'Added', 'Removed', 'Net', `Stock at ${projWeekLabels[projWeekLabels.length - 1].split('\n')[0]} (original → simulated)`, 'Weeks < 1.5m coverage (original → simulated)', 'Weeks at stock-out (original → simulated)', 'First stock-out (original → simulated)'].map(h => (
+                      <th key={h} style={th2}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {simImpactByItem.map((r, i) => {
+                    const net = r.added - r.removed;
+                    return (
+                      <tr key={r.item} style={{ background: i % 2 === 0 ? '#1e293b' : '#0f172a' }}>
+                        <td style={{ ...td2, fontWeight: 700 }}>{r.item}</td>
+                        <td style={{ ...td2, color: '#94a3b8' }}>{itemDesc[r.item] || ''}</td>
+                        <td style={{ ...td2, color: r.added ? '#38bdf8' : '#475569' }}>{r.added ? `+${r.added.toLocaleString()}` : '—'}</td>
+                        <td style={{ ...td2, color: r.removed ? '#f87171' : '#475569' }}>{r.removed ? `−${r.removed.toLocaleString()}` : '—'}</td>
+                        <td style={{ ...td2, fontWeight: 700, color: net > 0 ? '#38bdf8' : net < 0 ? '#f87171' : '#94a3b8' }}>{net > 0 ? '+' : ''}{net.toLocaleString()}</td>
+                        <td style={td2}>{r.baseEnd.toLocaleString()} → <strong style={{ color: '#f1f5f9' }}>{r.simEnd.toLocaleString()}</strong></td>
+                        <td style={td2}>{r.baseBelow} → <strong style={{ color: r.simBelow < r.baseBelow ? '#10b981' : r.simBelow > r.baseBelow ? '#f87171' : '#f1f5f9' }}>{r.simBelow}</strong> wks</td>
+                        <td style={td2}>{r.baseOut} → <strong style={{ color: r.simOut < r.baseOut ? '#10b981' : r.simOut > r.baseOut ? '#f87171' : '#f1f5f9' }}>{r.simOut}</strong> wks</td>
+                        <td style={td2}>{r.baseFirstOut || 'none'} → <strong style={{ color: '#f1f5f9' }}>{r.simFirstOut || 'none'}</strong></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Detail of changes</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#0f172a' }}>
+                    {['Item', 'Description', 'Week', 'Action', 'Quantity', 'Stock that week (original → simulated)', 'Coverage that week (original → simulated)', ''].map(h => (
+                      <th key={h} style={th2}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {simChanges.map((c, i) => (
+                    <tr key={c.item + c.dateStr} style={{ background: i % 2 === 0 ? '#1e293b' : '#0f172a' }}>
+                      <td style={{ ...td2, fontWeight: 700 }}>{c.item}</td>
+                      <td style={{ ...td2, color: '#94a3b8' }}>{itemDesc[c.item] || ''}</td>
+                      <td style={{ ...td2, whiteSpace: 'nowrap' }}>{c.weekLabel}</td>
+                      <td style={td2}>
+                        <span style={{
+                          background: c.qty > 0 ? '#0c4a6e' : '#450a0a', color: c.qty > 0 ? '#38bdf8' : '#f87171',
+                          borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700,
+                        }}>{c.qty > 0 ? 'ADD' : 'REMOVE'}</span>
+                      </td>
+                      <td style={{ ...td2, fontWeight: 700, color: c.qty > 0 ? '#38bdf8' : '#f87171' }}>
+                        {c.qty > 0 ? '+' : '−'}{Math.abs(c.qty).toLocaleString()} u
+                      </td>
+                      {c.inHorizon ? (
+                        <>
+                          <td style={td2}>{c.baseStock.toLocaleString()} → <strong style={{ color: '#f1f5f9' }}>{c.simStock.toLocaleString()}</strong></td>
+                          <td style={td2}>
+                            <span style={{ color: coverageColor(c.baseCov) }}>{c.baseCov !== null ? `${c.baseCov}m` : '—'}</span>
+                            {' → '}<strong style={{ color: coverageColor(c.simCov) }}>{c.simCov !== null ? `${c.simCov}m` : '—'}</strong>
+                          </td>
+                        </>
+                      ) : (
+                        <td colSpan={2} style={{ ...td2, color: '#64748b', fontStyle: 'italic' }}>Outside the 26-week window — not applied</td>
+                      )}
+                      <td style={{ ...td2, textAlign: 'right' }}>
+                        <button
+                          onClick={() => updateManualWip(c.item, c.dateStr, '')}
+                          title="Remove this change"
+                          aria-label={`Remove change for ${c.item} ${c.weekLabel}`}
+                          style={{ background: 'transparent', color: '#94a3b8', border: '1px solid #334155', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}>
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
