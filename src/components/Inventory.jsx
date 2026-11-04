@@ -838,12 +838,12 @@ function isoDate(d) {
 // shelf life) and re-filtered each week, then weeklyDemand is consumed
 // earliest-expiry-first. Planned WIP (and optional manual WIP from the PSI
 // Simulator) is added as a non-expiring lot in the week it arrives.
-function runProjection({ items, kpiRows, fgLots, projWeeks, wip, manualWip = {} }) {
+function runProjection({ items, kpiRows, fgLots, projWeeks, wip, manualWip = {}, avgOverride = {} }) {
   const projStart = projWeeks[0];
   const minExpiryAtStart = new Date(projStart.getTime() + 195 * 24 * 60 * 60 * 1000);
 
   return items.map(item => {
-    const avgDemand    = kpiRows.find(r => r.item === item)?.avgDemand || 0;
+    const avgDemand    = avgOverride[item] ?? (kpiRows.find(r => r.item === item)?.avgDemand || 0);
     const weeklyDemand = avgDemand * 12 / 52;
     const itemWIP      = wip[item] || {};
     const itemManual   = manualWip[item] || {};
@@ -895,6 +895,45 @@ function loadManualWip() {
 }
 function saveManualWip(v) {
   try { localStorage.setItem(LS_PSI_SIM, JSON.stringify(v)); } catch { /* storage unavailable */ }
+}
+
+const LS_PSI_SIM_AVG = 'caldera_psi_sim_avg_override';
+function loadAvgOverride() {
+  try { return JSON.parse(localStorage.getItem(LS_PSI_SIM_AVG) || '{}') || {}; } catch { return {}; }
+}
+function saveAvgOverride(v) {
+  try { localStorage.setItem(LS_PSI_SIM_AVG, JSON.stringify(v)); } catch { /* storage unavailable */ }
+}
+
+// Editable Avg/m cell: keeps a local draft while typing so the field can be
+// emptied and retyped; commits every valid (≥ 0) number immediately.
+function AvgInput({ item, original, value, onCommit }) {
+  const [draft, setDraft] = useState(null);
+  const overridden = value !== undefined;
+  const shown = draft ?? String(overridden ? value : original);
+  return (
+    <input
+      type="number"
+      min="0"
+      step="any"
+      aria-label={`Avg monthly demand for ${item}`}
+      title={overridden ? `Original: ${original.toLocaleString()} /month` : 'Type a new monthly demand to simulate'}
+      value={shown}
+      onChange={e => {
+        const v = e.target.value;
+        setDraft(v);
+        const n = Number(v);
+        if (v !== '' && Number.isFinite(n) && n >= 0) onCommit(item, n);
+      }}
+      onBlur={() => setDraft(null)}
+      style={{
+        width: 72, padding: '3px 5px', fontSize: 12, fontWeight: 600, textAlign: 'right',
+        background: overridden ? '#3b0764' : '#0f172a',
+        color: overridden ? '#e9d5ff' : '#e2e8f0',
+        border: `1px solid ${overridden ? '#c084fc' : '#334155'}`, borderRadius: 4,
+      }}
+    />
+  );
 }
 
 function InventoryFGSS({ data, salesData, psiData }) {
@@ -1033,21 +1072,41 @@ function InventoryFGSS({ data, salesData, psiData }) {
       return next;
     });
   };
+  // Avg/m overrides per item (simulated monthly demand)
+  const [avgOverride, setAvgOverride] = useState(loadAvgOverride);
+  const updateAvgOverride = (item, n) => {
+    const original = kpiRows.find(r => r.item === item)?.avgDemand || 0;
+    setAvgOverride(prev => {
+      const next = { ...prev };
+      if (n === original) delete next[item]; else next[item] = n;
+      saveAvgOverride(next);
+      return next;
+    });
+  };
+  const resetAvgOverride = item => updateAvgOverride(item, kpiRows.find(r => r.item === item)?.avgDemand || 0);
+
   const clearManualWip = () => {
-    const n = Object.values(manualWip).reduce((c, byWeek) => c + Object.keys(byWeek).length, 0);
-    if (n === 0) return;
-    if (!window.confirm(`Reset the simulation? This removes all ${n} manual adjustment${n !== 1 ? 's' : ''}.`)) return;
+    const nWip = Object.values(manualWip).reduce((c, byWeek) => c + Object.keys(byWeek).length, 0);
+    const nAvg = Object.keys(avgOverride).length;
+    if (nWip + nAvg === 0) return;
+    const parts = [];
+    if (nWip) parts.push(`${nWip} quantity adjustment${nWip !== 1 ? 's' : ''}`);
+    if (nAvg) parts.push(`${nAvg} Avg/m change${nAvg !== 1 ? 's' : ''} (restored to original)`);
+    if (!window.confirm(`Reset the simulation? This removes ${parts.join(' and ')}.`)) return;
     setManualWip({});
     saveManualWip({});
+    setAvgOverride({});
+    saveAvgOverride({});
   };
   const manualEntries = Object.values(manualWip).flatMap(byWeek => Object.values(byWeek));
   const manualAdded   = manualEntries.filter(q => q > 0).reduce((a, b) => a + b, 0);
   const manualRemoved = manualEntries.filter(q => q < 0).reduce((a, b) => a - b, 0);
-  const manualWipTotal = manualEntries.length;
+  const avgChangeCount = Object.keys(avgOverride).length;
+  const manualWipTotal = manualEntries.length + avgChangeCount;
 
   const simRows = useMemo(
-    () => runProjection({ items: allFGItems, kpiRows, fgLots, projWeeks, wip: WIP, manualWip }),
-    [allFGItems, kpiRows, fgLots, projWeeks, WIP, manualWip]);
+    () => runProjection({ items: allFGItems, kpiRows, fgLots, projWeeks, wip: WIP, manualWip, avgOverride }),
+    [allFGItems, kpiRows, fgLots, projWeeks, WIP, manualWip, avgOverride]);
 
   // ── PSI Simulator: summary of changes ──────────────────────────────────────
   const simChanges = useMemo(() => {
@@ -1074,8 +1133,8 @@ function InventoryFGSS({ data, salesData, psiData }) {
 
   const simImpactByItem = useMemo(() => {
     const last = projWeeks.length - 1;
-    return allFGItems.filter(item => manualWip[item]).map(item => {
-      const qtys = Object.values(manualWip[item]);
+    return allFGItems.filter(item => manualWip[item] || avgOverride[item] !== undefined).map(item => {
+      const qtys = Object.values(manualWip[item] || {});
       const base = projectionRows.find(r => r.item === item);
       const sim  = simRows.find(r => r.item === item);
       const below   = row => row.weeks.filter(w => w.coverage !== null && w.coverage < SS_ORA_LOW).length;
@@ -1083,6 +1142,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
       const firstOut = row => { const n = row.weeks.findIndex(w => w.netStock <= 0); return n === -1 ? null : projWeekLabels[n].split('\n')[0]; };
       return {
         item,
+        baseAvg: base.avgDemand, simAvg: sim.avgDemand, avgChanged: avgOverride[item] !== undefined,
         added:   qtys.filter(q => q > 0).reduce((a, b) => a + b, 0),
         removed: qtys.filter(q => q < 0).reduce((a, b) => a - b, 0),
         baseEnd: base.weeks[last].netStock, simEnd: sim.weeks[last].netStock,
@@ -1091,7 +1151,18 @@ function InventoryFGSS({ data, salesData, psiData }) {
         baseFirstOut: firstOut(base), simFirstOut: firstOut(sim),
       };
     });
-  }, [manualWip, allFGItems, projWeeks, projWeekLabels, projectionRows, simRows]);
+  }, [manualWip, avgOverride, allFGItems, projWeeks, projWeekLabels, projectionRows, simRows]);
+
+  const simDemandChanges = useMemo(() =>
+    allFGItems.filter(item => avgOverride[item] !== undefined).map(item => {
+      const original = kpiRows.find(r => r.item === item)?.avgDemand || 0;
+      const sim = avgOverride[item];
+      return {
+        item, original, sim,
+        originalWk: +(original * 12 / 52).toFixed(1), simWk: +(sim * 12 / 52).toFixed(1),
+        pct: original > 0 ? +(((sim - original) / original) * 100).toFixed(1) : null,
+      };
+    }), [allFGItems, avgOverride, kpiRows]);
 
   // ── Summary counts ────────────────────────────────────────────────────────
   const critical  = kpiRows.filter(r => r.coverage !== null && (r.coverage < SS_ORA_LOW || r.coverage > SS_ORA_HIGH)).length;
@@ -1333,14 +1404,15 @@ function InventoryFGSS({ data, salesData, psiData }) {
         <div style={{ color: '#64748b', fontSize: 12 }}>
           {manualWipTotal > 0
             ? <>Manual adjustments: <strong style={{ color: '#38bdf8' }}>+{manualAdded.toLocaleString()} u added</strong>
-                {' · '}<strong style={{ color: '#f87171' }}>−{manualRemoved.toLocaleString()} u removed</strong></>
+                {' · '}<strong style={{ color: '#f87171' }}>−{manualRemoved.toLocaleString()} u removed</strong>
+                {' · '}<strong style={{ color: '#c084fc' }}>{avgChangeCount} Avg/m change{avgChangeCount !== 1 ? 's' : ''}</strong></>
             : 'No manual adjustments entered'}
         </div>
         <div style={{ flex: 1 }} />
         <button
           onClick={clearManualWip}
           disabled={manualWipTotal === 0}
-          title={manualWipTotal === 0 ? 'Nothing to clear' : 'Remove all manual adjustments'}
+          title={manualWipTotal === 0 ? 'Nothing to clear' : 'Remove all manual quantities and restore the original Avg/m'}
           style={{
             background: manualWipTotal > 0 ? '#7f1d1d' : '#1e293b',
             color: manualWipTotal > 0 ? '#fecaca' : '#475569',
@@ -1353,6 +1425,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
       </div>
       <div style={{ color: '#64748b', fontSize: 11, marginBottom: 10 }}>
         Same projection as above, plus your manual adjustments per code and per week · type a positive quantity to add WIP or a negative quantity (e.g. -500) to remove units ·
+        edit <span style={{ color: '#c084fc' }}>Avg/m</span> to simulate a different demand (Avg/wk = Avg/m × 12 ÷ 52) ·
         <span style={{ color: '#34d399' }}> green = planned WIP</span> ·
         <span style={{ color: '#38bdf8' }}> blue = manual add</span> ·
         <span style={{ color: '#f87171' }}> red = manual remove</span> · Δ = change vs. baseline projection · entries are saved in this browser
@@ -1378,8 +1451,20 @@ function InventoryFGSS({ data, salesData, psiData }) {
                 <tr key={r.item} style={{ background: rowBg }}>
                   <td style={{ ...td2, fontWeight: 700, position: 'sticky', left: 0, background: rowBg, zIndex: 1 }}>{r.item}</td>
                   <td style={{ ...td2, color: '#94a3b8', position: 'sticky', left: 80, background: rowBg, zIndex: 1, minWidth: 160 }}>{itemDesc[r.item] || ''}</td>
-                  <td style={{ ...td2, whiteSpace: 'nowrap' }}>{r.avgDemand.toLocaleString()}</td>
-                  <td style={{ ...td2, whiteSpace: 'nowrap' }}>{r.weeklyDemand.toLocaleString()}</td>
+                  <td style={{ ...td2, whiteSpace: 'nowrap', padding: '4px 8px' }}>
+                    <AvgInput item={r.item} original={base?.avgDemand ?? 0} value={avgOverride[r.item]} onCommit={updateAvgOverride} />
+                    {avgOverride[r.item] !== undefined && (
+                      <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <span>was {(base?.avgDemand ?? 0).toLocaleString()}</span>
+                        <button onClick={() => resetAvgOverride(r.item)} title="Restore original Avg/m"
+                          aria-label={`Restore original Avg/m for ${r.item}`}
+                          style={{ background: 'transparent', border: 'none', color: '#c084fc', cursor: 'pointer', fontSize: 11, padding: 0 }}>↺</button>
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ ...td2, whiteSpace: 'nowrap', color: avgOverride[r.item] !== undefined ? '#e9d5ff' : td2.color, fontWeight: avgOverride[r.item] !== undefined ? 700 : 400 }}>
+                    {r.weeklyDemand.toLocaleString()}
+                  </td>
                   {r.weeks.map((w, n) => {
                     const delta = w.netStock - (base?.weeks[n]?.netStock || 0);
                     return (
@@ -1460,11 +1545,11 @@ function InventoryFGSS({ data, salesData, psiData }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
           <div style={{ color: '#f1f5f9', fontSize: 14, fontWeight: 700 }}>📝 Simulation summary — changes made</div>
           <div style={{ color: '#64748b', fontSize: 12 }}>
-            {simChanges.length} change{simChanges.length !== 1 ? 's' : ''} · {simImpactByItem.length} code{simImpactByItem.length !== 1 ? 's' : ''} impacted
+            {simChanges.length} quantity change{simChanges.length !== 1 ? 's' : ''} · {simDemandChanges.length} Avg/m change{simDemandChanges.length !== 1 ? 's' : ''} · {simImpactByItem.length} code{simImpactByItem.length !== 1 ? 's' : ''} impacted
           </div>
         </div>
 
-        {simChanges.length === 0 ? (
+        {simChanges.length === 0 && simDemandChanges.length === 0 ? (
           <div style={{ color: '#64748b', fontSize: 13, padding: '8px 0' }}>
             No changes yet. Enter a quantity in the simulator above to see it listed here.
           </div>
@@ -1475,7 +1560,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: '#0f172a' }}>
-                    {['Item', 'Description', 'Added', 'Removed', 'Net', `Stock at ${projWeekLabels[projWeekLabels.length - 1].split('\n')[0]} (original → simulated)`, 'Weeks < 1.5m coverage (original → simulated)', 'Weeks at stock-out (original → simulated)', 'First stock-out (original → simulated)'].map(h => (
+                    {['Item', 'Description', 'Avg/m (original → simulated)', 'Added', 'Removed', 'Net', `Stock at ${projWeekLabels[projWeekLabels.length - 1].split('\n')[0]} (original → simulated)`, 'Weeks < 1.5m coverage (original → simulated)', 'Weeks at stock-out (original → simulated)', 'First stock-out (original → simulated)'].map(h => (
                       <th key={h} style={th2}>{h}</th>
                     ))}
                   </tr>
@@ -1487,6 +1572,11 @@ function InventoryFGSS({ data, salesData, psiData }) {
                       <tr key={r.item} style={{ background: i % 2 === 0 ? '#1e293b' : '#0f172a' }}>
                         <td style={{ ...td2, fontWeight: 700 }}>{r.item}</td>
                         <td style={{ ...td2, color: '#94a3b8' }}>{itemDesc[r.item] || ''}</td>
+                        <td style={td2}>
+                          {r.avgChanged
+                            ? <>{r.baseAvg.toLocaleString()} → <strong style={{ color: '#c084fc' }}>{r.simAvg.toLocaleString()}</strong></>
+                            : <span style={{ color: '#475569' }}>{r.baseAvg.toLocaleString()} (unchanged)</span>}
+                        </td>
                         <td style={{ ...td2, color: r.added ? '#38bdf8' : '#475569' }}>{r.added ? `+${r.added.toLocaleString()}` : '—'}</td>
                         <td style={{ ...td2, color: r.removed ? '#f87171' : '#475569' }}>{r.removed ? `−${r.removed.toLocaleString()}` : '—'}</td>
                         <td style={{ ...td2, fontWeight: 700, color: net > 0 ? '#38bdf8' : net < 0 ? '#f87171' : '#94a3b8' }}>{net > 0 ? '+' : ''}{net.toLocaleString()}</td>
@@ -1501,7 +1591,48 @@ function InventoryFGSS({ data, salesData, psiData }) {
               </table>
             </div>
 
-            <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Detail of changes</div>
+            {simDemandChanges.length > 0 && (
+              <>
+                <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Demand changes (Avg/m)</div>
+                <div style={{ overflowX: 'auto', marginBottom: 20 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#0f172a' }}>
+                        {['Item', 'Description', 'Action', 'Avg/m (original → simulated)', 'Avg/wk (original → simulated)', 'Change', ''].map(h => (
+                          <th key={h} style={th2}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {simDemandChanges.map((c, i) => (
+                        <tr key={c.item} style={{ background: i % 2 === 0 ? '#1e293b' : '#0f172a' }}>
+                          <td style={{ ...td2, fontWeight: 700 }}>{c.item}</td>
+                          <td style={{ ...td2, color: '#94a3b8' }}>{itemDesc[c.item] || ''}</td>
+                          <td style={td2}>
+                            <span style={{ background: '#3b0764', color: '#c084fc', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>DEMAND</span>
+                          </td>
+                          <td style={td2}>{c.original.toLocaleString()} → <strong style={{ color: '#c084fc' }}>{c.sim.toLocaleString()}</strong></td>
+                          <td style={td2}>{c.originalWk.toLocaleString()} → <strong style={{ color: '#c084fc' }}>{c.simWk.toLocaleString()}</strong></td>
+                          <td style={{ ...td2, fontWeight: 700, color: c.sim > c.original ? '#f87171' : '#10b981' }}>
+                            {c.pct === null ? 'n/a' : `${c.pct > 0 ? '+' : ''}${c.pct}%`}
+                          </td>
+                          <td style={{ ...td2, textAlign: 'right' }}>
+                            <button onClick={() => resetAvgOverride(c.item)} title="Restore original Avg/m"
+                              aria-label={`Restore Avg/m for ${c.item}`}
+                              style={{ background: 'transparent', color: '#94a3b8', border: '1px solid #334155', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}>
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {simChanges.length > 0 && (<>
+            <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Detail of quantity changes</div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -1551,6 +1682,7 @@ function InventoryFGSS({ data, salesData, psiData }) {
                 </tbody>
               </table>
             </div>
+            </>)}
           </>
         )}
       </div>
