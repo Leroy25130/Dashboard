@@ -5,6 +5,7 @@ import {
 } from 'recharts';
 import SectionHeader from './SectionHeader';
 import MultiSelect from './MultiSelect';
+import { downloadExcel, todayStamp } from '../utils/exportExcel';
 
 const th = { padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontWeight: 600, borderBottom: '1px solid #334155' };
 const td = { padding: '7px 12px', color: '#e2e8f0', borderBottom: '1px solid #1e293b' };
@@ -252,6 +253,22 @@ function LateDeliveriesSection({ data }) {
       .sort((a, b) => (b._delay || 0) - (a._delay || 0));
   }, [filteredLate]);
 
+  const exportLate = () => downloadExcel({
+    rows: tableRows,
+    sheetName: 'Late Deliveries',
+    fileName: `Late_Deliveries_${todayStamp()}.xlsx`,
+    columns: [
+      { header: 'Document #',      value: r => r['Document Number'], width: 14 },
+      { header: 'Line #',          value: r => r['Line Number'], width: 8 },
+      { header: 'Supplier',        value: r => r['Supplier Name'], width: 30 },
+      { header: 'Item Description', value: r => r['Item Description'], width: 45 },
+      { header: 'Promised Date',   value: r => parseDate(r['Promised Delivery Date']), width: 14 },
+      { header: 'Requested Date',  value: r => parseDate(r['Requested Delivery Date']), width: 14 },
+      { header: 'Open Qty',        value: r => r['Open Quantity'] != null ? Number(r['Open Quantity']) : null, width: 10 },
+      { header: 'Delay (days)',    value: r => r._delay, width: 12 },
+    ],
+  });
+
   const VIEWS = [
     { id: 'open',   label: 'Open Lines',    value: openLines.length,   color: '#3b82f6' },
     { id: 'late',   label: 'Late Lines',    value: lateLines.length,   color: '#ef4444' },
@@ -300,8 +317,20 @@ function LateDeliveriesSection({ data }) {
 
       {/* Table */}
       <div style={{ background: '#1e293b', borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
-        <div style={{ padding: '12px 16px', color: '#94a3b8', fontSize: 13, borderBottom: '1px solid #334155' }}>
-          {tableRows.length} late lines (sorted by delay)
+        <div style={{ padding: '10px 16px', color: '#94a3b8', fontSize: 13, borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span>{tableRows.length} late lines (sorted by delay)</span>
+          <div style={{ flex: 1 }} />
+          <button
+            onClick={exportLate}
+            disabled={tableRows.length === 0}
+            title={`Download all ${tableRows.length} late lines${selSuppliers.size ? ' (current supplier filter)' : ''} as an Excel file`}
+            style={{
+              background: tableRows.length ? '#166534' : '#1e293b', color: tableRows.length ? '#dcfce7' : '#475569',
+              border: `1px solid ${tableRows.length ? '#22c55e' : '#334155'}`, borderRadius: 6,
+              padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: tableRows.length ? 'pointer' : 'not-allowed',
+            }}>
+            ⬇ Download Excel
+          </button>
         </div>
         <div style={{ overflowX: 'auto', maxHeight: 400, overflowY: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
